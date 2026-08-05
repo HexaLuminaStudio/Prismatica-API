@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from flask import Flask
+from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from loguru import logger
@@ -25,6 +26,19 @@ limiter = Limiter(
     default_limits=[],
     storage_uri=getSettings().rateLimitStorageUri,
 )
+
+
+def _parseCorsOrigins(raw: str) -> list[str] | str:
+    """解析 CORS 起源列表。
+
+    - 空字符串 → 全部允许(返回特殊字符串 "*",供 flask-cors 跳过白名单检查)
+    - 逗号分隔的多项 → 精确白名单
+    - 单项 → 同样按列表处理
+    """
+    parts = [o.strip() for o in raw.split(",") if o.strip()]
+    if not parts:
+        return "*"
+    return parts
 
 
 def configureLogging() -> None:
@@ -58,6 +72,30 @@ def createApp() -> Flask:
     # 中间件
     installRequestId(app)
     installAccessLog(app)
+
+    # CORS(跨域)
+    # 允许的请求头:含 Authorization / Idempotency-Key / X-Device-Id / X-Client-Platform
+    # 注意:不要传 resources={"/*": ...}——flask-cors 6 会把 "/*" 编译成正则 re.compile("/*"),
+    #      该正则匹配任意字符串,意味着 any origin 通过。直接全局注册 CORS 即可。
+    # always_send=False:非白名单 origin 不返回 ACAO 头(默认 True 会回退到首项,造成漏洞)。
+    corsOrigins = _parseCorsOrigins(settings.corsAllowedOrigins)
+    CORS(
+        app,
+        origins=corsOrigins,
+        allow_headers=[
+            "Content-Type",
+            "Authorization",
+            "X-Admin-Token",
+            "X-Device-Id",
+            "X-Client-Platform",
+            "Idempotency-Key",
+            "X-Request-Id",
+        ],
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        supports_credentials=settings.corsAllowCredentials,
+        max_age=settings.corsMaxAgeSec,
+        always_send=False,
+    )
 
     # 限流
     defaultLimit = f"{settings.rateLimitPerMin} per minute"

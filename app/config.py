@@ -92,6 +92,13 @@ class Settings(BaseSettings):
     logLevel: str = Field(default="INFO", alias="LOG_LEVEL")
     logJson: bool = Field(default=False, alias="LOG_JSON")
 
+    # ---- CORS(跨域)----
+    # 逗号分隔的 origin 白名单,留空表示允许所有(仅 dev)。
+    # 生产必须显式列出,例如:https://app.example.com,https://admin.example.com
+    corsAllowedOrigins: str = Field(default="", alias="CORS_ALLOWED_ORIGINS")
+    corsAllowCredentials: bool = Field(default=False, alias="CORS_ALLOW_CREDENTIALS")
+    corsMaxAgeSec: int = Field(default=600, alias="CORS_MAX_AGE_SEC")
+
     # ---- 自动建表(开发期便利)----
     autoInitSchema: bool = Field(default=True, alias="AUTO_INIT_SCHEMA")
 

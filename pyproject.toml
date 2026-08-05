@@ -18,6 +18,7 @@ dependencies = [
     "prometheus-client>=0.20.0",
     "gunicorn>=22.0.0",
     "requests>=2.34.2",
+    "flask-cors",
 ]
 
 [dependency-groups]

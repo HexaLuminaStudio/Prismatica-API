@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>Prismatica 前端联调示例</title>
+  <style>
+    body { font-family: -apple-system, "Segoe UI", sans-serif; max-width: 720px; margin: 40px auto; padding: 0 16px; }
+    h1 { font-size: 18px; }
+    pre { background: #f4f4f4; padding: 12px; overflow: auto; border-radius: 4px; }
+    button { padding: 6px 14px; margin: 4px 4px 4px 0; cursor: pointer; }
+    input { padding: 4px 8px; width: 100%; box-sizing: border-box; }
+    label { display: block; margin: 12px 0 4px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Prismatica 前端联调示例</h1>
+  <p>把 <code>baseUrl</code> 改成你的后端地址(默认 localhost:8000)。
+     浏览器控制台会打印每次请求的详细日志,断点调试即可。</p>
+
+  <label>API Base URL</label>
+  <input id="baseUrl" value="http://localhost:8000">
+
+  <label>激活码(可选,留空跳过 Redeem)</label>
+  <input id="code" placeholder="INV-XXXX-XXXX-XXXX-XXXX">
+
+  <label>refresh_token(已登录后填)</label>
+  <input id="refreshToken" placeholder="检测到本地存储后自动带">
+
+  <div>
+    <button id="btnMe">GET /v1/account/me</button>
+    <button id="btnBills">GET /v1/account/bills</button>
+    <button id="btnRefresh">POST /v1/auth/refresh</button>
+    <button id="btnLogout">POST /v1/auth/logout</button>
+  </div>
+
+  <h3>响应</h3>
+  <pre id="out">—</pre>
+
+  <script>
+    // ---- 客户端 persistent state ----
+    const KEYS = {
+      accessToken: "prismatica_access_token",
+      refreshToken: "prismatica_refresh_token",
+      deviceId: "prismatica_device_id",
+    };
+
+    function getDeviceId() {
+      let id = localStorage.getItem(KEYS.deviceId);
+      if (!id) {
+        // 与客户端 signed_code.py 不强耦合,这里只用浏览器原生 crypto
+        id = (crypto.randomUUID && crypto.randomUUID())
+          || ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+                (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4)).toString(16));
+        localStorage.setItem(KEYS.deviceId, id);
+      }
+      return id;
+    }
+
+    function getAccessToken()  { return localStorage.getItem(KEYS.accessToken) || ""; }
+    function getRefreshToken() { return localStorage.getItem(KEYS.refreshToken) || ""; }
+    function setTokens(at, rt) {
+      if (at) localStorage.setItem(KEYS.accessToken, at);
+      if (rt) localStorage.setItem(KEYS.refreshToken, rt);
+    }
+    function clearTokens() {
+      localStorage.removeItem(KEYS.accessToken);
+      localStorage.removeItem(KEYS.refreshToken);
+    }
+
+    // ---- 统一请求封装 ----
+    async function request(method, path, body, extraHeaders = {}) {
+      const baseUrl = document.getElementById("baseUrl").value.replace(/\/$/, "");
+      const headers = {
+        "Content-Type": "application/json",
+        "X-Client-Platform": "web",
+        "X-Device-Id": getDeviceId(),
+        ...extraHeaders,
+      };
+      const accessToken = getAccessToken();
+      if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+      const init = { method, headers };
+      if (body !== undefined) init.body = JSON.stringify(body);
+
+      console.log("[REQ]", method, path, headers, body);
+      const res = await fetch(`${baseUrl}${path}`, init);
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch { data = text; }
+      console.log("[RES]", res.status, data);
+      document.getElementById("out").textContent =
+        `${method} ${path}  → HTTP ${res.status}\n\n${JSON.stringify(data, null, 2)}`;
+      return { status: res.status, data };
+    }
+
+    // ---- 业务动作 ----
+    async function loginWithCode() {
+      const code = document.getElementById("code").value.trim();
+      if (!code) { alert("请先填写激活码"); return; }
+      const { status, data } = await request("POST", "/v1/auth/redeem", {
+        code,
+        deviceId: getDeviceId(),
+        deviceName: navigator.userAgent.slice(0, 80),
+        displayName: "web-demo",
+      });
+      if (status === 200 && data.accessToken) {
+        setTokens(data.accessToken, data.refreshToken);
+      }
+    }
+
+    async function me()    { return request("GET", "/v1/account/me"); }
+    async function bills() { return request("GET", "/v1/account/bills?limit=10"); }
+    async function logout() {
+      const rt = getRefreshToken();
+      if (!rt) { clearTokens(); return; }
+      await request("POST", "/v1/auth/logout", { refreshToken: rt });
+      clearTokens();
+    }
+    async function refresh() {
+      const rt = getRefreshToken();
+      if (!rt) { alert("没有 refresh_token"); return; }
+      const { status, data } = await request("POST", "/v1/auth/refresh", { refreshToken: rt });
+      if (status === 200 && data.accessToken) {
+        setTokens(data.accessToken, data.refreshToken);
+      }
+    }
+
+    // ---- 绑定 ----
+    document.getElementById("btnMe").onclick     = me;
+    document.getElementById("btnBills").onclick  = bills;
+    document.getElementById("btnRefresh").onclick= refresh;
+    document.getElementById("btnLogout").onclick = logout;
+
+    // 启动时:若有 code 就激活;否则直接拉 me
+    (async () => {
+      if (document.getElementById("code").value.trim()) {
+        await loginWithCode();
+      } else if (getAccessToken()) {
+        await me();
+      }
+    })();
+  </script>
+</body>
+</html>
