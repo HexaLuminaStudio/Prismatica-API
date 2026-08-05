@@ -1,71 +1,17 @@
-version: "3.9"
-
 services:
-  mysql:
-    image: mysql:8.0
-    container_name: prismatica-mysql
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: root-change-me
-      MYSQL_DATABASE: prismatica
-      MYSQL_USER: prismatica
-      MYSQL_PASSWORD: prismatica-change-me
-      TZ: Asia/Shanghai
-    command:
-      - --character-set-server=utf8mb4
-      - --collation-server=utf8mb4_unicode_ci
-      - --default-authentication-plugin=mysql_native_password
-    volumes:
-      - mysql-data:/var/lib/mysql
-      - ./scripts/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-    ports:
-      - "3306:3306"
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-proot-change-me"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-  redis:
-    image: redis:7-alpine
-    container_name: prismatica-redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-
   api:
     build:
       context: .
       dockerfile: deploy/Dockerfile
     container_name: prismatica-api
     restart: unless-stopped
-    depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    environment:
-      ENV: dev
-      DEBUG: "false"
-      DB_HOST: mysql
-      DB_PORT: "3306"
-      DB_NAME: prismatica
-      DB_USER: prismatica
-      DB_PASSWORD: prismatica-change-me
-      REDIS_URL: redis://redis:6379/0
-      RATELIMIT_STORAGE_URI: redis://redis:6379/1
-      LICENSE_SECRET: ${LICENSE_SECRET:-dev-license-secret-please-override}
-      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-please-override}
-      ADMIN_TOKEN: ${ADMIN_TOKEN:-dev-admin-token}
-      RATE_LIMIT_PER_MIN: "60"
-      AUTO_INIT_SCHEMA: "false"   # schema 已由 mysql entrypoint 导入
+    env_file:
+      - .env
     ports:
       - "8000:8000"
-
-volumes:
-  mysql-data:
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
