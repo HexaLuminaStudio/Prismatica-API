@@ -5,16 +5,18 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    TZ=Asia/Shanghai
+    TZ=Asia/Shanghai \
+    PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
-# 系统依赖(cryptography / PyMySQL 等需要的编译工具,大多已 wheel 化,保险起见保留)
+# 系统依赖
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# 先装依赖(利用 Docker 缓存)
+# 先装依赖(利用 Docker 缓存)。用 pip 直接装,而不是依赖 pyproject.toml,
+# 这样不用每次改 pyproject.toml 都重装一遍。
 COPY pyproject.toml ./
 RUN pip install --upgrade pip \
     && pip install \
@@ -28,13 +30,16 @@ RUN pip install --upgrade pip \
         "pydantic-settings>=2.3.0" \
         "loguru>=0.7.2" \
         "Flask-Limiter>=3.8.0" \
+        "flask-cors>=6.0.0" \
         "redis>=5.0.4" \
         "prometheus-client>=0.20.0" \
-        "gunicorn>=22.0.0"
+        "gunicorn>=22.0.0" \
+        "requests>=2.34.2"
 
 # 复制源码
 COPY app ./app
 COPY scripts ./scripts
+COPY wsgi.py ./wsgi.py
 
 EXPOSE 8000
 
@@ -42,10 +47,10 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8000/healthz || exit 1
 
-# Gunicorn 启动:4 worker × 2 thread;超时 60s;access log 落 stdout
+# Gunicorn 启动
 CMD ["gunicorn", \
      "-w", "4", "-k", "gthread", "--threads", "2", \
      "-b", "0.0.0.0:8000", \
      "--timeout", "60", "--graceful-timeout", "30", \
      "--access-logfile", "-", "--error-logfile", "-", \
-     "app.main:app"]
+     "wsgi:app"]
