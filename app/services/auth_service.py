@@ -1,4 +1,3 @@
-# coding: utf-8
 """认证服务:redeem / refresh / logout。
 
 按 PRD v2 §3 实现:
@@ -8,15 +7,11 @@
 """
 from __future__ import annotations
 
-import base64
-import json
 import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
 from loguru import logger
-from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -24,8 +19,8 @@ from app.config import getSettings
 from app.errors import ApiError
 from app.models import (
     LicenseCodeSeen,
-    RefreshToken,
     RechargeRecord,
+    RefreshToken,
     UserAccount,
     UserBalance,
     UserDevice,
@@ -39,7 +34,6 @@ from app.schemas.auth import (
 )
 from app.security import hmac as hmacUtil
 from app.security.jwt import encodeAccessToken
-
 
 _settings = getSettings()
 
@@ -97,7 +91,7 @@ def _writeRechargeRecord(
     source: str,
     balanceBefore: int,
     balanceAfter: int,
-    codeHash: Optional[str] = None,
+    codeHash: str | None = None,
     operatorNote: str = "",
 ) -> RechargeRecord:
     record = RechargeRecord(
@@ -157,7 +151,7 @@ def _issueRefreshToken(
         tokenId=_genRefreshTokenId(),
         userId=userId,
         deviceId=deviceId,
-        expiresAt=datetime.now(timezone.utc)
+        expiresAt=datetime.now(UTC)
         + timedelta(seconds=_settings.jwtRefreshTtlSec),
     )
     db.add(token)
@@ -212,7 +206,7 @@ def redeemCode(
     deviceName: str = "",
     platform: str = "",
     displayName: str = "内测用户",
-    clientIp: Optional[str] = None,
+    clientIp: str | None = None,
 ) -> RedeemResponse:
     """统一兑换入口(自动识别 INV/TRY/RCH)。"""
     kind, model = _parseAndVerify(rawCode)
@@ -224,10 +218,10 @@ def redeemCode(
         raise ApiError("ALREADY_USED", "该凭证已被使用")
 
     # 2) 过期判断
-    now = datetime.now(timezone.utc).replace(tzinfo=None)  # 与 MySQL TIMESTAMP 比较保持 naive
+    now = datetime.now(UTC).replace(tzinfo=None)  # 与 MySQL TIMESTAMP 比较保持 naive
     expireAt: datetime = model.expireAt
     if expireAt.tzinfo is not None:
-        expireAt = expireAt.astimezone(timezone.utc).replace(tzinfo=None)
+        expireAt = expireAt.astimezone(UTC).replace(tzinfo=None)
     if expireAt < now:
         raise ApiError("EXPIRED", "该凭证已过期")
 
@@ -286,7 +280,7 @@ def redeemCode(
             db.flush()
         except IntegrityError:
             db.rollback()
-            raise ApiError("ALREADY_USED", "该凭证已被使用")
+            raise ApiError("ALREADY_USED", "该凭证已被使用") from None
 
         _ensureDevice(db, userId, deviceId, deviceName, platform)
         refresh = _issueRefreshToken(db, userId, deviceId)
@@ -361,7 +355,7 @@ def redeemCode(
         db.flush()
     except IntegrityError:
         db.rollback()
-        raise ApiError("ALREADY_USED", "该充值码已被使用")
+        raise ApiError("ALREADY_USED", "该充值码已被使用") from None
 
     refresh = _issueRefreshToken(db, userId, deviceId)
     db.commit()
@@ -384,8 +378,8 @@ def refreshTokens(db: Session, refreshToken: str, deviceId: str) -> RedeemRespon
         raise ApiError("REFRESH_INVALID", httpStatus=401)
     expiresAt = token.expiresAt
     if expiresAt.tzinfo is not None:
-        expiresAt = expiresAt.astimezone(timezone.utc).replace(tzinfo=None)
-    if expiresAt < datetime.now(timezone.utc).replace(tzinfo=None):
+        expiresAt = expiresAt.astimezone(UTC).replace(tzinfo=None)
+    if expiresAt < datetime.now(UTC).replace(tzinfo=None):
         raise ApiError("REFRESH_EXPIRED", httpStatus=401)
 
     user = db.get(UserAccount, token.userId)
@@ -394,7 +388,7 @@ def refreshTokens(db: Session, refreshToken: str, deviceId: str) -> RedeemRespon
     balance = _ensureBalance(db, user.userId)
 
     # 滚动续期:revoke 老 refresh + 发新 refresh(保证旧 token 一旦泄露立即失效)
-    token.revokedAt = datetime.now(timezone.utc).replace(tzinfo=None)
+    token.revokedAt = datetime.now(UTC).replace(tzinfo=None)
     newRefresh = _issueRefreshToken(db, user.userId, deviceId or token.deviceId)
     db.commit()
 
@@ -409,9 +403,9 @@ def refreshTokens(db: Session, refreshToken: str, deviceId: str) -> RedeemRespon
     )
 
 
-def revokeRefreshToken(db: Session, refreshToken: Optional[str]) -> None:
+def revokeRefreshToken(db: Session, refreshToken: str | None) -> None:
     """登出:撤销指定的 refresh_token;若 None 则撤销整个 device 的 token。"""
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     if refreshToken:
         token = db.get(RefreshToken, refreshToken)
         if token is not None and token.revokedAt is None:

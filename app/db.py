@@ -1,4 +1,3 @@
-# coding: utf-8
 """SQLAlchemy 2.x 同步引擎 + Session。
 
 - 使用 PyMySQL 驱动
@@ -7,8 +6,8 @@
 """
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Iterator
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine

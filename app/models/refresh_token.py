@@ -1,9 +1,7 @@
-# coding: utf-8
 """refresh_tokens — Refresh Token(允许主动 revoke)。"""
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import DateTime, ForeignKey, Index, String, func
 from sqlalchemy.orm import Mapped, mapped_column
@@ -22,7 +20,7 @@ class RefreshToken(Base):
     )
     deviceId: Mapped[str] = mapped_column("device_id", String(36), nullable=False)
     expiresAt: Mapped[datetime] = mapped_column("expires_at", DateTime, nullable=False)
-    revokedAt: Mapped[Optional[datetime]] = mapped_column(
+    revokedAt: Mapped[datetime | None] = mapped_column(
         "revoked_at", DateTime, nullable=True
     )
     createdAt: Mapped[datetime] = mapped_column(

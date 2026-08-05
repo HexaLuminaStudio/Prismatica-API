@@ -1,9 +1,7 @@
-# coding: utf-8
 """audit_logs — 审计日志(所有 admin 行为)。"""
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import JSON, BigInteger, DateTime, Index, String, func
 from sqlalchemy.orm import Mapped, mapped_column
@@ -21,11 +19,11 @@ class AuditLog(Base):
     )
     actor: Mapped[str] = mapped_column(String(64), nullable=False)
     action: Mapped[str] = mapped_column(String(64), nullable=False)
-    targetUser: Mapped[Optional[str]] = mapped_column(
+    targetUser: Mapped[str | None] = mapped_column(
         "target_user", String(36), nullable=True
     )
-    details: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    ip: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
     createdAt: Mapped[datetime] = mapped_column(
         "created_at", DateTime, server_default=func.current_timestamp()
     )

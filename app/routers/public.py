@@ -1,4 +1,3 @@
-# coding: utf-8
 """/healthz + /metrics + /openapi.json(公共端点)。"""
 from __future__ import annotations
 

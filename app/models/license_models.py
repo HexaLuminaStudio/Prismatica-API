@@ -1,4 +1,3 @@
-# coding: utf-8
 """三类凭证的 Pydantic 模型。
 
 与客户端 `app/core/models/auth_models.py` 完全兼容(JSON 序列化/反序列化字段一致),
@@ -7,13 +6,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
-from typing import Optional
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class UserTier(str, Enum):
+class UserTier(StrEnum):
     """用户档位。"""
 
     GUEST = "guest"

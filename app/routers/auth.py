@@ -1,6 +1,7 @@
-# coding: utf-8
 """/v1/auth/* 路由:redeem / refresh / logout。"""
 from __future__ import annotations
+
+from contextlib import contextmanager
 
 from flask import Blueprint, jsonify, request
 from pydantic import ValidationError
@@ -13,7 +14,6 @@ from app.schemas.auth import (
     RedeemResponse,
     RefreshRequest,
 )
-from app.security.jwt import encodeAccessToken
 from app.services.auth_service import (
     redeemCode,
     refreshTokens,
@@ -28,7 +28,7 @@ def postRedeem():
     try:
         payload = RedeemRequest.model_validate(request.get_json(force=True, silent=False))
     except ValidationError as e:
-        raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": e.errors()})
+        raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": e.errors()}) from e
 
     with _sessionCtx() as db:
         result: RedeemResponse = redeemCode(
@@ -48,7 +48,7 @@ def postRefresh():
     try:
         payload = RefreshRequest.model_validate(request.get_json(force=True, silent=False))
     except ValidationError as e:
-        raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": e.errors()})
+        raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": e.errors()}) from e
 
     deviceId = request.headers.get("X-Device-Id", "")
     with _sessionCtx() as db:
@@ -70,7 +70,6 @@ def postLogout():
 
 
 # 局部工具,避免循环 import
-from contextlib import contextmanager
 
 
 @contextmanager

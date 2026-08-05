@@ -1,4 +1,3 @@
-# coding: utf-8
 """Pydantic schemas 聚合导出。"""
 from app.schemas.admin import (
     AdminGrantRequest,

@@ -1,4 +1,3 @@
-# coding: utf-8
 """端到端烟测:调用 FastAPI(此处 Flask)对外 HTTP 接口走完 redeem → me →
 preauth → settle → bills 全流程。
 
@@ -34,12 +33,12 @@ def _ok(label: str, resp: requests.Response) -> dict:
 def makeInvite() -> str:
     """本地用同一 LICENSE_SECRET 签发一份邀请码(与客户端 signed_code 同款)。"""
     from app.config import getSettings
-    from app.security import hmac as hmacUtil
     from app.models.license_models import InviteCode, UserTier
+    from app.security import hmac as hmacUtil
 
-    settings = getSettings()
+    getSettings()
     payload = InviteCode(
-        code=f"INV-AAAA-BBBB-CCCC-DDDD",
+        code="INV-AAAA-BBBB-CCCC-DDDD",
         grantedBalance=100,
         grantedDays=30,
         tier=UserTier.BETA,

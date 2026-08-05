@@ -1,18 +1,14 @@
-# coding: utf-8
 """deps.py — Depends / 装饰器:鉴权 / db session / admin token。"""
 from __future__ import annotations
 
 from functools import wraps
-from typing import Optional
 
 import jwt as pyjwt
 from flask import g, request
 
 from app.config import getSettings
-from app.db import getDb
 from app.errors import ApiError
 from app.security.jwt import decodeAccessToken
-
 
 _settings = getSettings()
 
@@ -33,8 +29,8 @@ def requireAuth(func):
         except pyjwt.InvalidTokenError as e:
             raise ApiError("UNAUTHORIZED", f"无效 token: {e}", httpStatus=401) from e
 
-        userId: Optional[str] = payload.get("sub")
-        deviceId: Optional[str] = payload.get("did")
+        userId: str | None = payload.get("sub")
+        deviceId: str | None = payload.get("did")
         if not userId or not deviceId:
             raise ApiError("UNAUTHORIZED", "token 缺少 sub/did", httpStatus=401)
 
@@ -60,7 +56,7 @@ def requireAdmin(func):
     return wrapper
 
 
-def getClientIp() -> Optional[str]:
+def getClientIp() -> str | None:
     """客户端 IP(优先 X-Forwarded-For,否则 remote_addr)。"""
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:

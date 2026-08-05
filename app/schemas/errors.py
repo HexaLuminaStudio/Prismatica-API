@@ -1,4 +1,3 @@
-# coding: utf-8
 """通用错误 envelope + Pydantic 模型。
 
 与 PRD §5.1 一致:
@@ -6,9 +5,9 @@
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class ApiErrorBody(BaseModel):
@@ -16,8 +15,8 @@ class ApiErrorBody(BaseModel):
 
     code: str
     message: str
-    requestId: Optional[str] = None
-    details: Optional[dict[str, Any]] = None
+    requestId: str | None = None
+    details: dict[str, Any] | None = None
 
 
 class ApiErrorEnvelope(BaseModel):

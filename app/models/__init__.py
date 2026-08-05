@@ -1,4 +1,3 @@
-# coding: utf-8
 """ORM 模型聚合导出。
 
 SQLAlchemy 2.x 的 DeclarativeBase 要求所有 Model 在使用前被 import,

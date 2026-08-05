@@ -1,4 +1,3 @@
-# coding: utf-8
 """JWT 编/解码(HS256)。
 
 PRD §7 JWT 字段:
@@ -15,7 +14,6 @@ from typing import Any
 import jwt
 
 from app.config import getSettings
-
 
 _settings = getSettings()
 

@@ -1,4 +1,3 @@
-# coding: utf-8
 """HMAC-SHA256 凭证验签。
 
 复用客户端 signed_code.py 的格式约定:
@@ -15,7 +14,6 @@ from datetime import datetime
 from typing import Any
 
 from app.config import getSettings
-
 
 _settings = getSettings()
 

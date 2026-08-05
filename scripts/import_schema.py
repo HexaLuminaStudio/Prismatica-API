@@ -1,4 +1,3 @@
-# coding: utf-8
 """手动把 scripts/schema.sql 灌入 six_corpus(开发库已存在,跳过 CREATE DATABASE/USE)。
 
 执行:

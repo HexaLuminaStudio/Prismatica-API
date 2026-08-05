@@ -1,4 +1,3 @@
-# coding: utf-8
 """计费服务:estimate / preauth / settle / refund。
 
 对齐客户端 `BillingService` 行为,server-authoritative:
@@ -12,8 +11,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from loguru import logger
 from sqlalchemy import select
@@ -34,7 +32,7 @@ from app.services.pricing import PricingService, getPricingService
 class BillingService:
     """计费门面。"""
 
-    def __init__(self, pricing: Optional[PricingService] = None):
+    def __init__(self, pricing: PricingService | None = None):
         self._pricing = pricing or getPricingService()
 
     # ---------- Estimate ----------
@@ -57,7 +55,7 @@ class BillingService:
         resourceUsed: int,
         taskId: str = "",
         description: str = "",
-        idempotencyKey: Optional[str] = None,
+        idempotencyKey: str | None = None,
     ) -> PreauthResponse:
         rule = self._pricing.rule(actionType)
         estimatedCost = self._pricing.estimate(actionType, resourceUsed)
@@ -158,7 +156,7 @@ class BillingService:
         bill.resourceUsed = resourceUsed or bill.resourceUsed
         bill.balanceAfter = newBalanceAfter
         bill.status = "settled"
-        bill.settledAt = datetime.now(timezone.utc).replace(tzinfo=None)
+        bill.settledAt = datetime.now(UTC).replace(tzinfo=None)
 
         db.commit()
         logger.info(
@@ -190,7 +188,7 @@ class BillingService:
 
         bill.status = "refunded"
         bill.balanceAfter = newBalanceAfter
-        bill.settledAt = datetime.now(timezone.utc).replace(tzinfo=None)
+        bill.settledAt = datetime.now(UTC).replace(tzinfo=None)
         db.commit()
 
         logger.info(
@@ -225,8 +223,8 @@ class BillingService:
         return balance
 
     def _findBillByIdempotency(
-        self, db: Session, key: Optional[str]
-    ) -> Optional[Bill]:
+        self, db: Session, key: str | None
+    ) -> Bill | None:
         if not key:
             return None
         return db.execute(
@@ -234,7 +232,7 @@ class BillingService:
         ).scalar_one_or_none()
 
 
-_billingSingleton: Optional[BillingService] = None
+_billingSingleton: BillingService | None = None
 
 
 def getBillingService() -> BillingService:

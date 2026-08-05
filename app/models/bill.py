@@ -1,4 +1,3 @@
-# coding: utf-8
 """bills — 账单流水。
 
 status 状态机:pending → settled / refunded
@@ -7,7 +6,6 @@ status 状态机:pending → settled / refunded
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import (
     BigInteger,
@@ -55,13 +53,13 @@ class Bill(Base):
     description: Mapped[str] = mapped_column(
         "description", String(256), nullable=False, default=""
     )
-    idempotencyKey: Mapped[Optional[str]] = mapped_column(
+    idempotencyKey: Mapped[str | None] = mapped_column(
         "idempotency_key", String(36), nullable=True
     )
     createdAt: Mapped[datetime] = mapped_column(
         "created_at", DateTime, server_default=func.current_timestamp()
     )
-    settledAt: Mapped[Optional[datetime]] = mapped_column(
+    settledAt: Mapped[datetime | None] = mapped_column(
         "settled_at", DateTime, nullable=True
     )
 

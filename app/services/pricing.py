@@ -1,4 +1,3 @@
-# coding: utf-8
 """智慧计价服务。
 
 对齐客户端 `app/core/services/pricing_service.py` 的 DEFAULT_RULES:
@@ -7,10 +6,7 @@
 """
 from __future__ import annotations
 
-from typing import Optional
-
 from app.schemas.billing import CostPreview, PricingRule, PricingTier
-
 
 # 默认规则(与客户端 DEFAULT_RULES 对齐)
 DEFAULT_RULES: dict[str, PricingRule] = {
@@ -159,7 +155,7 @@ class PricingService:
         )
 
 
-_pricingSingleton: Optional[PricingService] = None
+_pricingSingleton: PricingService | None = None
 
 
 def getPricingService() -> PricingService:

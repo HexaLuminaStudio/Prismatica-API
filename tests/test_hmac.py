@@ -1,4 +1,3 @@
-# coding: utf-8
 """HMAC 工具测试(无需 DB)。"""
 from __future__ import annotations
 
@@ -9,7 +8,6 @@ from datetime import datetime, timedelta
 from app.config import getSettings
 from app.models.license_models import InviteCode, RechargeCode, TrialCode, UserTier
 from app.security import hmac as hmacUtil
-
 
 _settings = getSettings()
 

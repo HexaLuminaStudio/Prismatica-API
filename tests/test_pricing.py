@@ -1,4 +1,3 @@
-# coding: utf-8
 """定价服务单元测试(纯逻辑,无 DB 依赖)。"""
 from __future__ import annotations
 

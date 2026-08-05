@@ -1,11 +1,7 @@
-# coding: utf-8
 """计费 Pydantic 模型 — 对齐 PRD §5.4。"""
 from __future__ import annotations
 
-from typing import Optional
-
 from pydantic import BaseModel, Field
-
 
 # ---------------------------------------------------------------------
 # 计价规则(与客户端 pricing_service.DEFAULT_RULES 对齐)

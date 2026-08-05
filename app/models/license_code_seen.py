@@ -1,4 +1,3 @@
-# coding: utf-8
 """license_codes_seen — 凭证码全局幂等表。
 
 PK = sha256(code) hex;充值成功后写入 recharge_user_id / recharge_amount。
@@ -6,9 +5,8 @@ PK = sha256(code) hex;充值成功后写入 recharge_user_id / recharge_amount�
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, func
+from sqlalchemy import DateTime, Enum, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -23,25 +21,25 @@ class LicenseCodeSeen(Base):
     codeKind: Mapped[str] = mapped_column(
         "code_kind", Enum("invite", "trial", "recharge"), nullable=False
     )
-    issuedAt: Mapped[Optional[datetime]] = mapped_column(
+    issuedAt: Mapped[datetime | None] = mapped_column(
         "issued_at", DateTime, nullable=True
     )
-    consumedAt: Mapped[Optional[datetime]] = mapped_column(
+    consumedAt: Mapped[datetime | None] = mapped_column(
         "consumed_at", DateTime, nullable=True
     )
-    consumedByUserId: Mapped[Optional[str]] = mapped_column(
+    consumedByUserId: Mapped[str | None] = mapped_column(
         "consumed_by_user_id", String(36), nullable=True
     )
-    consumeIp: Mapped[Optional[str]] = mapped_column(
+    consumeIp: Mapped[str | None] = mapped_column(
         "consume_ip", String(64), nullable=True
     )
-    rechargeUserId: Mapped[Optional[str]] = mapped_column(
+    rechargeUserId: Mapped[str | None] = mapped_column(
         "recharge_user_id", String(36), nullable=True
     )
-    rechargeAmount: Mapped[Optional[int]] = mapped_column(
+    rechargeAmount: Mapped[int | None] = mapped_column(
         "recharge_amount", Integer, nullable=True
     )
-    expireAt: Mapped[Optional[datetime]] = mapped_column(
+    expireAt: Mapped[datetime | None] = mapped_column(
         "expire_at", DateTime, nullable=True
     )
 

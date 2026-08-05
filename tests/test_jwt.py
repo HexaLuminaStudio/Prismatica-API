@@ -1,4 +1,3 @@
-# coding: utf-8
 """JWT 编/解码测试。"""
 from __future__ import annotations
 

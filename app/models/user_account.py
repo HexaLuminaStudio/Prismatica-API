@@ -1,4 +1,3 @@
-# coding: utf-8
 """user_accounts / user_devices / user_balances 三表(用户域)。
 
 设计要点:
@@ -9,7 +8,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import (
     BigInteger,
@@ -36,7 +34,7 @@ class UserAccount(Base):
     tier: Mapped[str] = mapped_column(String(16), nullable=False, default="beta")
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
     activatedAt: Mapped[datetime] = mapped_column("activated_at", DateTime, nullable=False)
-    expireAt: Mapped[Optional[datetime]] = mapped_column("expire_at", DateTime, nullable=True)
+    expireAt: Mapped[datetime | None] = mapped_column("expire_at", DateTime, nullable=True)
     createdAt: Mapped[datetime] = mapped_column(
         "created_at", DateTime, server_default=func.current_timestamp()
     )
@@ -47,7 +45,7 @@ class UserAccount(Base):
         onupdate=func.current_timestamp(),
     )
 
-    balance: Mapped["UserBalance"] = relationship(
+    balance: Mapped[UserBalance] = relationship(
         "UserBalance",
         back_populates="user",
         uselist=False,
@@ -111,7 +109,7 @@ class UserBalance(Base):
         onupdate=func.current_timestamp(),
     )
 
-    user: Mapped["UserAccount"] = relationship("UserAccount", back_populates="balance")
+    user: Mapped[UserAccount] = relationship("UserAccount", back_populates="balance")
 
     __table_args__ = (
         CheckConstraint("balance >= 0", name="chk_user_balances_balance"),

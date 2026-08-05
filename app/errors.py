@@ -1,4 +1,3 @@
-# coding: utf-8
 """ApiError envelope + 业务错误码。
 
 PRD §6 错误码规范(前端 InfoBar 文案必须对齐):
@@ -9,11 +8,10 @@ PRD §6 错误码规范(前端 InfoBar 文案必须对齐):
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
-from flask import jsonify, request
+from flask import jsonify
 from loguru import logger
-
 
 # 错误码 - HTTP 默认映射
 _ERROR_HTTP: dict[str, int] = {
@@ -65,9 +63,9 @@ class ApiError(Exception):
     def __init__(
         self,
         code: str,
-        message: Optional[str] = None,
-        httpStatus: Optional[int] = None,
-        details: Optional[dict[str, Any]] = None,
+        message: str | None = None,
+        httpStatus: int | None = None,
+        details: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(message or code)
         self.code = code

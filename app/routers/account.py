@@ -1,13 +1,10 @@
-# coding: utf-8
 """/v1/account/* 路由:me / bills。"""
 from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Optional
 
 from flask import Blueprint, g, jsonify, request
-from pydantic import ValidationError
 from sqlalchemy import select
 
 from app.db import getDb
@@ -67,7 +64,7 @@ def getBills():
         stmt = stmt.order_by(Bill.createdAt.desc()).limit(limit + 1)
         rows = db.execute(stmt).scalars().all()
 
-        nextCursor: Optional[str] = None
+        nextCursor: str | None = None
         if len(rows) > limit:
             nextCursor = rows[limit - 1].createdAt.isoformat()
             rows = rows[:limit]

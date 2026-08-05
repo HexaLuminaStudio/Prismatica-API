@@ -1,9 +1,7 @@
-# coding: utf-8
 """recharge_records — 充值/赠送流水。"""
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import (
     BigInteger,
@@ -31,7 +29,7 @@ class RechargeRecord(Base):
     )
     amount: Mapped[int] = mapped_column(Integer, nullable=False)
     source: Mapped[str] = mapped_column(String(32), nullable=False)
-    codeHash: Mapped[Optional[str]] = mapped_column("code_hash", String(64), nullable=True)
+    codeHash: Mapped[str | None] = mapped_column("code_hash", String(64), nullable=True)
     operatorNote: Mapped[str] = mapped_column(
         "operator_note", String(256), nullable=False, default=""
     )
@@ -41,7 +39,7 @@ class RechargeRecord(Base):
     balanceAfter: Mapped[int] = mapped_column(
         "balance_after", BigInteger, nullable=False, default=0
     )
-    expireAt: Mapped[Optional[datetime]] = mapped_column(
+    expireAt: Mapped[datetime | None] = mapped_column(
         "expire_at", DateTime, nullable=True
     )
     createdAt: Mapped[datetime] = mapped_column(

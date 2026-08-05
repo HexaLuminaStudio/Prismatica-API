@@ -1,4 +1,3 @@
-# coding: utf-8
 """/v1/admin/* 路由:grant / issue-codes(运营 CLI 调用)。"""
 from __future__ import annotations
 
@@ -6,7 +5,7 @@ import secrets
 import string
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from flask import Blueprint, g, jsonify, request
 from loguru import logger
@@ -16,6 +15,7 @@ from app.db import getDb
 from app.deps import getClientIp, requireAdmin
 from app.errors import ApiError
 from app.models import AuditLog, RechargeRecord, UserAccount, UserBalance
+from app.models.license_models import InviteCode, RechargeCode, TrialCode, UserTier
 from app.schemas.admin import (
     AdminGrantRequest,
     AdminGrantResponse,
@@ -23,7 +23,6 @@ from app.schemas.admin import (
     AdminIssueCodesResponse,
 )
 from app.security import hmac as hmacUtil
-from app.models.license_models import InviteCode, RechargeCode, TrialCode, UserTier
 
 bp = Blueprint("admin", __name__, url_prefix="/v1/admin")
 
@@ -66,7 +65,7 @@ def postGrant():
     try:
         payload = AdminGrantRequest.model_validate(request.get_json(force=True, silent=False))
     except ValidationError as e:
-        raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": e.errors()})
+        raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": e.errors()}) from e
 
     with _sessionCtx() as db:
         user = db.get(UserAccount, payload.userId)
@@ -114,14 +113,14 @@ def postIssueCodes():
     try:
         payload = AdminIssueCodesRequest.model_validate(request.get_json(force=True, silent=False))
     except ValidationError as e:
-        raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": e.errors()})
+        raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": e.errors()}) from e
 
     if payload.kind not in ("invite", "trial", "recharge"):
         raise ApiError("BAD_REQUEST", "kind 必须为 invite/trial/recharge")
     if payload.kind == "recharge" and payload.amount <= 0:
         raise ApiError("BAD_REQUEST", "充值码必须指定 amount > 0")
 
-    expireAt = datetime.now(timezone.utc) + timedelta(days=payload.expireDays)
+    expireAt = datetime.now(UTC) + timedelta(days=payload.expireDays)
     codes: list[str] = []
     for _ in range(payload.count):
         codeBody = _genCodeBody({"invite": "INV", "trial": "TRY", "recharge": "RCH"}[payload.kind])

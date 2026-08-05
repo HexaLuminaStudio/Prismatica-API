@@ -1,4 +1,3 @@
-# coding: utf-8
 """Prismatica 云端后端(Flask + MySQL)
 
 按 PRD v2(用户登录 + 积分结算)实施,替代 PRD v1 的 Flask + 12 张表方案。

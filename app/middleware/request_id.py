@@ -1,4 +1,3 @@
-# coding: utf-8
 """RequestId 中间件:每个请求分配唯一 id,贯穿日志与错误响应。"""
 from __future__ import annotations
 

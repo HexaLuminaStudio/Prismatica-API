@@ -1,4 +1,3 @@
-# coding: utf-8
 """/v1/billing/* 路由:estimate / preauth / settle / refund。"""
 from __future__ import annotations
 
@@ -33,7 +32,7 @@ def postEstimate():
     try:
         payload = EstimateRequest.model_validate(request.get_json(force=True, silent=False))
     except ValidationError as e:
-        raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": e.errors()})
+        raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": e.errors()}) from e
 
     with _sessionCtx() as db:
         preview = getBillingService().estimate(
@@ -51,7 +50,7 @@ def postPreauth():
     try:
         payload = PreauthRequest.model_validate(request.get_json(force=True, silent=False))
     except ValidationError as e:
-        raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": e.errors()})
+        raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": e.errors()}) from e
 
     idemKey = request.headers.get("Idempotency-Key") or None
     with _sessionCtx() as db:
@@ -73,7 +72,7 @@ def postSettle():
     try:
         payload = SettleRequest.model_validate(request.get_json(force=True, silent=False))
     except ValidationError as e:
-        raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": e.errors()})
+        raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": e.errors()}) from e
 
     with _sessionCtx() as db:
         result = getBillingService().settle(
@@ -91,7 +90,7 @@ def postRefund():
     try:
         payload = RefundRequest.model_validate(request.get_json(force=True, silent=False))
     except ValidationError as e:
-        raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": e.errors()})
+        raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": e.errors()}) from e
 
     with _sessionCtx() as db:
         result = getBillingService().refund(db, billId=payload.billId)

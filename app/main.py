@@ -1,4 +1,3 @@
-# coding: utf-8
 """Flask 应用工厂(create_app)+ 启动入口。
 
 启动:
@@ -19,7 +18,6 @@ from app.db import initSchemaFromSql, pingDb
 from app.errors import registerErrorHandlers
 from app.middleware.access_log import installAccessLog
 from app.middleware.request_id import installRequestId
-
 
 # 限流(默认内存,生产建议 Redis)
 limiter = Limiter(

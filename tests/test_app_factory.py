@@ -1,4 +1,3 @@
-# coding: utf-8
 """应用工厂 smoke 测试:不连 DB,只验证路由注册 + envelope。"""
 from __future__ import annotations
 

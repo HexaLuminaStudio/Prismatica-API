@@ -1,8 +1,5 @@
-# coding: utf-8
 """Admin Pydantic 模型 — 对齐 PRD §5.5。"""
 from __future__ import annotations
-
-from typing import Optional
 
 from pydantic import BaseModel, Field
 

@@ -1,9 +1,7 @@
-# coding: utf-8
 """认证相关 Pydantic 模型 — 对齐 PRD §5.2。"""
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -61,7 +59,7 @@ class RefreshRequest(BaseModel):
 class LogoutRequest(BaseModel):
     """POST /v1/auth/logout 请求体(可选 body)。"""
 
-    refreshToken: Optional[str] = None
+    refreshToken: str | None = None
 
 
 __all__ = [
