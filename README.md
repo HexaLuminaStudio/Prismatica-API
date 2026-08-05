@@ -4,7 +4,7 @@ Prismatica 桌面客户端的云端后端(对齐 `docs/backend-prd.md` PRD v2)�
 
 - **范围**:用户登录 + 积分结算(redeem / refresh / estimate / preauth / settle / refund / account / admin)
 - **技术栈**:Flask 3 + SQLAlchemy 2.x(同步)+ PyMySQL + PyJWT + bcrypt + pydantic v2 + loguru + Flask-Limiter + prometheus-client
-- **持久化**:MySQL 8.0(`scripts/schema.sql` 一键建库,8 张表)
+- **持久化**:MySQL 8.0(`scripts/schema.sql` 一键建库,9 张表 = 8 张业务表 + `admin_users` 管理账号)
 - **部署**:Docker + docker-compose(Flask + MySQL + Redis)
 
 ## 快速启动
@@ -81,6 +81,20 @@ deploy/
 | Billing | `POST /v1/billing/refund` | JWT | 全额退款 |
 | Admin | `POST /v1/admin/grant` | X-Admin-Token | 手动赠送余额 |
 | Admin | `POST /v1/admin/issue-codes` | X-Admin-Token | 批量签发凭证 |
+| **Admin 后台 (2026-08-05 M2)** ||||
+| 管理 | `POST /admin/login` | 无 | 用户名密码登录 → 颁 HttpOnly cookie |
+| 管理 | `POST /admin/logout` | 无 | 清除 cookie |
+| 管理 | `GET /admin/me` | Cookie 或 X-Admin-Token | 当前管理员信息 |
+| 管理 | `POST /admin/me/change-password` | Cookie | 修改自身密码 |
+| 管理 | `GET /admin/health` | 无 | 后台健康检查 |
+| 管理 | `GET /v1/admin/users` | Cookie | 用户列表(分页 + 模糊搜索) |
+| 管理 | `GET /v1/admin/users/{userId}` | Cookie | 用户详情(含 device 数) |
+| 管理 | `POST /v1/admin/users/{userId}/revoke-sessions` | Cookie | 撤销该用户所有 refresh_token(强制下线) |
+| 管理 | `POST /v1/admin/users/{userId}/tier` | Cookie | 修改用户 tier / status |
+| 管理 | `GET /v1/admin/audit` | Cookie | 审计日志查询(action/actor/targetUser/days 过滤) |
+| 管理 | `GET /v1/admin/audit-summary` | Cookie | 按 action group by + 计数(看板) |
+| 管理 | `GET /v1/admin/metrics-summary` | Cookie | 看板 KPI:用户总数 / 7 日活跃 / grant 总额 |
+| 管理 | `GET /v1/admin/codes/lookup?code=...` | Cookie | 查询某个 RCH/INV/TRY 状态 |
 
 ## 与前端对接契约
 
@@ -108,8 +122,30 @@ pytest --cov=app --cov-fail-under=60
 详见 `.env.example`。生产部署前必须替换:
 - `LICENSE_SECRET`(HMAC 凭证签名,与客户端共用)
 - `JWT_SECRET`(HS256 签名)
-- `ADMIN_TOKEN`(运营端 X-Admin-Token)
+- `ADMIN_TOKEN`(运营端 X-Admin-Token,兼容 curl)
+- `ADMIN_COOKIE_SECRET`(管理后台 cookie HMAC 签名,至少 32 字节,与管理后台专用)
 - `DB_PASSWORD`
+
+## 管理后台登录(2026-08-05 M2)
+
+启动时若 `admin_users` 表为空,自动 seed `root` 账号:
+
+```bash
+# 方式一:环境变量指定初始密码(推荐)
+export ADMIN_BOOTSTRAP_PASSWORD='S0me-Strong-Pass!'
+python -m app.main
+
+# 方式二:不指定 → 自动生成 24 字节随机密码并打印到 stderr(请捕获并立即改)
+python -m app.main 2>&1 | tee admin.log
+```
+
+种子脚本可单独重跑:`python -m scripts.seed_admin`。
+
+登录后:
+- 浏览器:`POST /admin/login` → HttpOnly cookie → 后续走 cookie
+- CLI / curl:仍可带 `X-Admin-Token: $ADMIN_TOKEN`(走 fallback 路径)
+
+账户锁定:连续失败 `ADMIN_MAX_FAILED_ATTEMPTS`(默认 5)次后账号被锁,需手动 `admin_users.status` 改回 `active`。
 
 ## 命名规范
 

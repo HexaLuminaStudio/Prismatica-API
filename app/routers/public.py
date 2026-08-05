@@ -38,7 +38,11 @@ def openapi():
         if rule.endpoint == "static":
             continue
         path = rule.rule
-        if not path.startswith("/v1/"):
+        # 2026-08-05 M2:同时输出 /admin/* 与 /v1/admin/* 与 /v1/*;
+        # 排除 /healthz / /openapi.json / /metrics /admin/health 等基础设施路径。
+        if path in ("/healthz", "/openapi.json", "/metrics", "/admin/health"):
+            continue
+        if not (path.startswith("/v1/") or path.startswith("/admin/")):
             continue
         methods = sorted(
             m for m in rule.methods if m in ("GET", "POST", "PUT", "DELETE", "PATCH")

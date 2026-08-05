@@ -84,6 +84,26 @@ class Settings(BaseSettings):
         alias="ADMIN_TOKEN",
         description="运营端 X-Admin-Token 校验值",
     )
+    adminCookieSecret: str = Field(
+        default="DEV-ADMIN-COOKIE-SECRET-PLEASE-OVERRIDE-IN-PROD",
+        alias="ADMIN_COOKIE_SECRET",
+        description="(2026-08-05 M2) cookie 签名 HMAC 密钥,至少 32 字节",
+    )
+    adminCookieMaxAgeSec: int = Field(
+        default=7200,
+        alias="ADMIN_COOKIE_MAX_AGE",
+        description="(2026-08-05 M2) admin 会话 cookie 有效期(秒),默认 2h",
+    )
+    adminBootstrapPassword: str = Field(
+        default="",
+        alias="ADMIN_BOOTSTRAP_PASSWORD",
+        description="(2026-08-05 M2) 启动期种子 root 账号的初始密码;空字符串表示不启用种子",
+    )
+    adminMaxFailedAttempts: int = Field(
+        default=5,
+        alias="ADMIN_MAX_FAILED_ATTEMPTS",
+        description="(2026-08-05 M2) 连续登录失败 N 次后锁定账号",
+    )
 
     # ---- 限流 ----
     rateLimitPerMin: int = Field(default=60, alias="RATE_LIMIT_PER_MIN")

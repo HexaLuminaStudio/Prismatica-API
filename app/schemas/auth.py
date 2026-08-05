@@ -22,6 +22,7 @@ class UserOut(BaseModel):
     displayName: str
     tier: str
     createdAt: datetime
+    expireAt: datetime | None = None
 
 
 class BalanceOut(BaseModel):

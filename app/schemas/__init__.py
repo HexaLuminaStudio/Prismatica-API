@@ -5,6 +5,25 @@ from app.schemas.admin import (
     AdminIssueCodesRequest,
     AdminIssueCodesResponse,
 )
+from app.schemas.admin_auth import (
+    AdminChangePasswordRequest,
+    AdminLoginRequest,
+    AdminMeResponse,
+)
+from app.schemas.admin_users import (
+    AdminAuditItem,
+    AdminAuditResponse,
+    AdminAuditSummaryItem,
+    AdminAuditSummaryResponse,
+    AdminMetricsSummary,
+    AdminUserDetail,
+    AdminUserListItem,
+    AdminUserListResponse,
+    CodeLookupRequest,
+    CodeLookupResponse,
+    RevokeSessionsRequest,
+    RevokeSessionsResponse,
+)
 from app.schemas.auth import (
     BalanceOut,
     LogoutRequest,
@@ -30,10 +49,13 @@ from app.schemas.errors import ApiErrorBody, ApiErrorEnvelope
 from app.schemas.user import BillListResponse, BillOut, UserAccountOut
 
 __all__ = [
+    "AdminChangePasswordRequest",
     "AdminGrantRequest",
     "AdminGrantResponse",
     "AdminIssueCodesRequest",
     "AdminIssueCodesResponse",
+    "AdminLoginRequest",
+    "AdminMeResponse",
     "ApiErrorBody",
     "ApiErrorEnvelope",
     "BalanceOut",

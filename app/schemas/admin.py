@@ -37,9 +37,17 @@ class AdminIssueCodesResponse(BaseModel):
     codes: list[str]
 
 
+class AdminUpdateUserTierRequest(BaseModel):
+    """POST /v1/admin/users/{userId}/tier 请求体(2026-08-05 M2 B2)。"""
+
+    tier: str = Field(..., description="tier 名:guest/trial/beta/beta_pro/paid")
+    status: str = Field(default="", description="可选:active/suspended/expired")
+
+
 __all__ = [
     "AdminGrantRequest",
     "AdminGrantResponse",
     "AdminIssueCodesRequest",
     "AdminIssueCodesResponse",
-]
+    "AdminUpdateUserTierRequest",
+]  # noqa: E501

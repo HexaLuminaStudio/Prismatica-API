@@ -90,6 +90,7 @@ def createApp() -> Flask:
             "X-Client-Platform",
             "Idempotency-Key",
             "X-Request-Id",
+            "Cookie",  # 2026-08-05 M2:Admin 后台 cookie 鉴权需要
         ],
         methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         supports_credentials=settings.corsAllowCredentials,
@@ -105,6 +106,7 @@ def createApp() -> Flask:
     # 路由
     from app.routers.account import bp as accountBp
     from app.routers.admin import bp as adminBp
+    from app.routers.admin_auth import bp as adminAuthBp  # 2026-08-05 M2
     from app.routers.auth import bp as authBp
     from app.routers.billing import bp as billingBp
     from app.routers.public import bp as publicBp
@@ -113,6 +115,7 @@ def createApp() -> Flask:
     app.register_blueprint(accountBp)
     app.register_blueprint(billingBp)
     app.register_blueprint(adminBp)
+    app.register_blueprint(adminAuthBp)
     app.register_blueprint(publicBp)
 
     # 错误处理
@@ -128,6 +131,15 @@ def createApp() -> Flask:
                 initSchemaFromSql(str(schemaPath))
             except Exception as e:
                 logger.exception(f"[Startup] schema 初始化失败: {e}")
+
+        # 2026-08-05 M2:启动期种子 admin 账号(管理员后台登录用)
+        # 失败仅日志,不阻断启动;运营可后续手动跑 scripts/seed_admin.py。
+        try:
+            from scripts.seed_admin import _ensureRootAdmin
+
+            _ensureRootAdmin()
+        except Exception as e:
+            logger.exception(f"[Startup] seed_admin 失败: {e}")
 
     logger.info(
         f"[Startup] {settings.appName} ready env={settings.env} db={settings.dbHost}"

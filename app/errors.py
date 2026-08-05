@@ -30,6 +30,10 @@ _ERROR_HTTP: dict[str, int] = {
     "NOT_FOUND": 404,
     "BAD_REQUEST": 400,
     "INTERNAL_ERROR": 500,
+    # 2026-08-05 M2:Admin 后台相关
+    "ADMIN_LOGIN_REQUIRED": 401,
+    "ADMIN_ACCOUNT_LOCKED": 423,
+    "ADMIN_INVALID_CREDENTIALS": 401,
 }
 
 
@@ -50,6 +54,10 @@ _ERROR_MESSAGE_CN: dict[str, str] = {
     "NOT_FOUND": "资源不存在",
     "BAD_REQUEST": "请求参数错误",
     "INTERNAL_ERROR": "服务暂时不可用,请稍后再试",
+    # 2026-08-05 M2:Admin 后台
+    "ADMIN_LOGIN_REQUIRED": "请先登录管理后台",
+    "ADMIN_ACCOUNT_LOCKED": "管理员账号已被锁定,请联系超级管理员",
+    "ADMIN_INVALID_CREDENTIALS": "用户名或密码错误",
 }
 
 
