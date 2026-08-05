@@ -36,7 +36,7 @@ jobs:
             ${{ runner.os }}-uv-${{ matrix.python-version }}-
 
       - name: 同步依赖 (uv sync)
-        run: uv sync --frozen --extra dev
+        run: uv sync --frozen --group dev
 
       - name: 运行 ruff
         run: uv run ruff check .
