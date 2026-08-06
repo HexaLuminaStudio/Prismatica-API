@@ -142,15 +142,6 @@ def test_admin_admins_create_short_username_no_cookie_returns_401(client):
 
 
 def test_admin_create_request_accepts_owner_role():
-    from app.schemas.admin import AdminCreateAdminRequest
-
-    r = AdminCreateAdminRequest(
-        username="newowner", password="abcd1234", role="owner"
-    )
-    assert r.role == "owner"
-
-
-def test_admin_create_request_accepts_owner_role():
     # role 由 service 层校验(VALID_ROLES = {owner, admin});Pydantic schema 不限制
     from app.schemas.admin import AdminCreateAdminRequest
 
@@ -173,7 +164,6 @@ def test_admin_create_request_short_password_rejected():
 
 
 def test_admin_update_request_empty_body_rejected():
-    from pydantic import ValidationError
 
     from app.schemas.admin import AdminUpdateAdminRequest
 

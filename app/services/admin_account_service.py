@@ -20,7 +20,6 @@
 from __future__ import annotations
 
 import secrets
-import uuid
 from datetime import UTC, datetime
 from typing import Any
 
@@ -83,11 +82,10 @@ def _ensureAtLeastOneActiveOwner(
     target = db.get(AdminUser, targetUserId)
     if target is None or target.deletedAt is not None:
         raise ApiError("NOT_FOUND", "管理员账号不存在或已删除")
-    wasActiveOwner = target.status == "active"
-    willRemainActive = (newStatus or target.status) == "active"
-    willRemain = not (newStatus == "locked" or newStatus == "deleted") and willRemainActive
-    # 删除场景:willRemain 必为 False
-    if not willRemain:
+    # 推导该操作完成后,目标 owner 是否仍为 active owner
+    finalStatus = newStatus if newStatus is not None else target.status
+    willRemainActiveOwner = finalStatus == "active"
+    if not willRemainActiveOwner:
         # 统计其他 active owner(排除自己)
         otherActive = (
             db.execute(

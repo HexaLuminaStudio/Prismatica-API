@@ -14,7 +14,7 @@ from __future__ import annotations
 from flask import Blueprint, g, request
 from pydantic import ValidationError
 
-from app.deps import getClientIp, requireAdminCookie, requireOwner
+from app.deps import requireAdminCookie, requireOwner
 from app.errors import ApiError, successEnvelope
 from app.schemas.admin import (
     AdminAccountListResponse,
