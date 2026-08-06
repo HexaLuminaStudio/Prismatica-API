@@ -176,8 +176,10 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 
 -- ---------------------------------------------------------------------
 -- 9. admin_users — 管理后台账号(浏览器 cookie + X-Admin-Token 双轨)
---    role:admin / super_admin(本期统一 admin,留扩展位)
---    status:active / locked / disabled
+--    role:owner / admin(owner 可管理 admin_users 资源;admin 仅可访问自身相关接口)
+--    status:active / locked
+--    deleted_at:软删时间戳,username 一旦软删永久占用。
+--    pwd_reset_at:密码重置时间戳,用于让旧 cookie 失效。
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS admin_users (
     user_id          CHAR(36) PRIMARY KEY,
@@ -187,8 +189,11 @@ CREATE TABLE IF NOT EXISTS admin_users (
     status           VARCHAR(16) NOT NULL DEFAULT 'active',
     last_login_at    DATETIME(3) NULL,
     failed_attempts  INT NOT NULL DEFAULT 0,
+    deleted_at       DATETIME(3) NULL,
+    pwd_reset_at     DATETIME(3) NULL,
     created_at       DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3),
     updated_at       DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
     UNIQUE KEY uk_admin_users_username (username),
-    KEY idx_admin_users_status (status)
+    KEY idx_admin_users_status (status),
+    KEY idx_admin_users_deleted_at (deleted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='管理后台账号';

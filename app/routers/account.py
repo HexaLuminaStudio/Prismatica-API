@@ -4,12 +4,12 @@ from __future__ import annotations
 from contextlib import contextmanager
 from datetime import datetime
 
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, g, request
 from sqlalchemy import select
 
 from app.db import getDb
 from app.deps import requireAuth
-from app.errors import ApiError
+from app.errors import ApiError, successEnvelope
 from app.models import Bill, UserAccount, UserBalance
 from app.schemas.user import BillListResponse, BillOut, UserAccountOut
 
@@ -43,7 +43,7 @@ def getMe():
             activatedAt=user.activatedAt,
             expireAt=user.expireAt,
         )
-        return jsonify(resp.model_dump(mode="json"))
+        return successEnvelope(resp.model_dump(mode="json"))
 
 
 @bp.get("/bills")
@@ -87,4 +87,4 @@ def getBills():
             )
             for r in rows
         ]
-        return jsonify(BillListResponse(items=items, nextCursor=nextCursor).model_dump(mode="json"))
+        return successEnvelope(BillListResponse(items=items, nextCursor=nextCursor).model_dump(mode="json"))

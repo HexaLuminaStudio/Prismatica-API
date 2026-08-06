@@ -6,6 +6,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.config import getSettings
 from app.db import pingDb
+from app.errors import successEnvelope
 
 bp = Blueprint("public", __name__)
 
@@ -21,7 +22,7 @@ def healthz():
         "db": "up" if dbOk else "down",
     }
     code = 200 if dbOk else 503
-    return jsonify(payload), code
+    return successEnvelope(payload, httpStatus=code)
 
 
 @bp.get("/metrics")

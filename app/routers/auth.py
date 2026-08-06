@@ -3,11 +3,11 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, request
 from pydantic import ValidationError
 
 from app.deps import getClientIp
-from app.errors import ApiError
+from app.errors import ApiError, successEnvelope
 from app.schemas.auth import (
     LogoutRequest,
     RedeemRequest,
@@ -40,7 +40,7 @@ def postRedeem():
             displayName=payload.displayName,
             clientIp=getClientIp(),
         )
-        return jsonify(result.model_dump(mode="json"))
+        return successEnvelope(result.model_dump(mode="json"))
 
 
 @bp.post("/refresh")
@@ -53,7 +53,7 @@ def postRefresh():
     deviceId = request.headers.get("X-Device-Id", "")
     with _sessionCtx() as db:
         result = refreshTokens(db, payload.refreshToken, deviceId)
-        return jsonify(result.model_dump(mode="json"))
+        return successEnvelope(result.model_dump(mode="json"))
 
 
 @bp.post("/logout")
@@ -66,7 +66,7 @@ def postLogout():
 
     with _sessionCtx() as db:
         revokeRefreshToken(db, payload.refreshToken)
-    return ("", 204)
+    return successEnvelope(None, httpStatus=204)
 
 
 # 局部工具,避免循环 import

@@ -1,1 +1,1 @@
-ssh root@你的服务器IP "cd /opt/Prismatica-API && git pull origin main && docker compose build api && docker compose up -d --no-deps api && docker compose logs --tail=30 api"
+ssh root@103.236.55.211 "cd /opt/Prismatica-API && git pull origin main && docker compose build api && docker compose up -d --no-deps api && docker compose logs --tail=30 api"

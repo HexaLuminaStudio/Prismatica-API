@@ -103,8 +103,9 @@ def createApp() -> Flask:
     limiter.init_app(app)
     limiter.default_limits = [defaultLimit]
 
-    # 路由(2026-08-06 重构:admin 拆为 auth / users / codes / audit / metrics 五个蓝图)
+    # 路由(2026-08-06 重构:admin 拆为 auth / users / codes / audit / metrics / admins 六个蓝图)
     from app.routers.account import bp as accountBp
+    from app.routers.admin_admins import bp as adminAdminsBp
     from app.routers.admin_audit import bp as adminAuditBp
     from app.routers.admin_auth import bp as adminAuthBp
     from app.routers.admin_codes import bp as adminCodesBp
@@ -122,6 +123,7 @@ def createApp() -> Flask:
     app.register_blueprint(adminCodesBp)
     app.register_blueprint(adminAuditBp)
     app.register_blueprint(adminMetricsBp)
+    app.register_blueprint(adminAdminsBp)
     app.register_blueprint(publicBp)
 
     # 错误处理

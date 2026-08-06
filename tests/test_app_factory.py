@@ -21,8 +21,11 @@ def test_healthz_returns_200(app):
     resp = client.get("/healthz")
     assert resp.status_code in (200, 503)
     data = resp.get_json()
-    assert "status" in data
-    assert "db" in data
+    # 2026-08-06 统一 envelope:{code, data, requestId}
+    assert data["code"] == "OK"
+    payload = data["data"]
+    assert "status" in payload
+    assert "db" in payload
 
 
 def test_openapi_includes_v1_routes(app):

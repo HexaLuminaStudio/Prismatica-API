@@ -3,12 +3,12 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, g, request
 from pydantic import ValidationError
 
 from app.db import getDb
 from app.deps import requireAuth
-from app.errors import ApiError
+from app.errors import ApiError, successEnvelope
 from app.schemas.billing import (
     EstimateRequest,
     PreauthRequest,
@@ -41,7 +41,7 @@ def postEstimate():
             actionType=payload.actionType,
             resourceUsed=payload.resourceUsed,
         )
-        return jsonify(preview.model_dump())
+        return successEnvelope(preview.model_dump())
 
 
 @bp.post("/preauth")
@@ -63,7 +63,7 @@ def postPreauth():
             description=payload.description,
             idempotencyKey=idemKey,
         )
-        return jsonify(result.model_dump())
+        return successEnvelope(result.model_dump())
 
 
 @bp.post("/settle")
@@ -81,7 +81,7 @@ def postSettle():
             realCost=payload.realCost,
             resourceUsed=payload.resourceUsed,
         )
-        return jsonify(result.model_dump())
+        return successEnvelope(result.model_dump())
 
 
 @bp.post("/refund")
@@ -94,4 +94,4 @@ def postRefund():
 
     with _sessionCtx() as db:
         result = getBillingService().refund(db, billId=payload.billId)
-        return jsonify(result.model_dump())
+        return successEnvelope(result.model_dump())

@@ -9,8 +9,10 @@ import jwt as pyjwt
 from flask import g, request
 
 from app.config import getSettings
+from app.db import getDb
 from app.errors import ApiError
 from app.middleware.admin_session import readSessionCookie
+from app.models import AdminUser
 from app.security.jwt import decodeAccessToken
 
 _settings = getSettings()
@@ -63,18 +65,23 @@ def requireAdminCookie(func):
     """装饰器:既接受 cookie session(浏览器),也接受 X-Admin-Token(curl/脚本)。
 
     优先级:cookie > header。
-    成功时把 admin userId / username / role 放入 flask.g:
+    成功时把 admin userId / username / role / pwd_reset_at 放入 flask.g:
         - g.adminUserId
         - g.adminUsername
         - g.adminRole
+        - g.adminPwdResetAt(若非 None 且 cookie.ts < 该值 → 401)
+
+    注意:role / pwdResetAt 始终从 DB 读最新值,不允许 cookie 篡改。
     """
 
     @wraps(func)
     def wrapper(*args, **kwargs):
         payload = readSessionCookie()
+        cookieTs: int | None = None
         if payload is not None:
             userId = payload.get("userId")
             username = payload.get("username")
+            cookieTs = payload.get("ts")
         else:
             # 降级到 X-Admin-Token(仅当 settings.adminToken 有效时)
             token = request.headers.get("X-Admin-Token", "")
@@ -84,9 +91,52 @@ def requireAdminCookie(func):
             else:
                 raise ApiError("ADMIN_LOGIN_REQUIRED", httpStatus=401)
 
+        # cookie 路径:从 DB 读 role / pwdResetAt(防篡改)
+        if userId == "cli-admin":
+            role = "owner"  # X-Admin-Token 默认 owner,运营后台信任
+            pwdResetAt = None
+        else:
+            with getDb() as db:
+                row = db.get(AdminUser, userId)
+                if row is None or row.deletedAt is not None:
+                    raise ApiError("ADMIN_LOGIN_REQUIRED", httpStatus=401)
+                role = row.role
+                pwdResetAt = row.pwdResetAt
+                # 密码已重置?旧 cookie 失效(cookieTs < pwdResetAt)
+                if (
+                    pwdResetAt is not None
+                    and cookieTs is not None
+                    and int(cookieTs) < int(pwdResetAt.timestamp())
+                ):
+                    raise ApiError("ADMIN_LOGIN_REQUIRED", httpStatus=401)
+                # locked 状态拒绝访问
+                if row.status == "locked":
+                    raise ApiError("ADMIN_ACCOUNT_LOCKED", httpStatus=423)
+
         g.adminUserId = userId
         g.adminUsername = username
+        g.adminRole = role
+        g.adminPwdResetAt = pwdResetAt
         g.adminActor = username or "admin"
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
+def requireOwner(func):
+    """装饰器:仅 owner 可访问(必须先经过 requireAdminCookie)。
+
+    使用:
+        @bp.post("/...")
+        @requireAdminCookie
+        @requireOwner
+        def handler(): ...
+    """
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if getattr(g, "adminRole", None) != "owner":
+            raise ApiError("FORBIDDEN", "仅 owner 可操作", httpStatus=403)
         return func(*args, **kwargs)
 
     return wrapper
@@ -104,5 +154,6 @@ __all__ = [
     "requireAuth",
     "requireAdmin",
     "requireAdminCookie",
+    "requireOwner",
     "getClientIp",
 ]

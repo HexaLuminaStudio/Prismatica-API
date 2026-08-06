@@ -253,6 +253,71 @@ class AdminMetricsSummary(BaseModel):
     billsRefundedLast7Days: int
 
 
+# ===========================================================================
+# admins — 管理员账号管理(2026-08-06 M3 新增,owner-only)
+# ===========================================================================
+
+
+class AdminAccountListItem(BaseModel):
+    """GET /v1/admin/admins 单条。"""
+
+    userId: str
+    username: str
+    role: str = Field(..., description="owner / admin")
+    status: str = Field(..., description="active / locked")
+    lastLoginAt: datetime | None = None
+    failedAttempts: int = 0
+    createdAt: datetime
+
+
+class AdminAccountListResponse(BaseModel):
+    items: list[AdminAccountListItem]
+    nextCursor: str | None = None
+
+
+class AdminCreateAdminRequest(BaseModel):
+    """POST /v1/admin/admins 请求体。"""
+
+    username: str = Field(..., min_length=3, max_length=64)
+    password: str = Field(..., min_length=8, max_length=256)
+    role: str = Field(default="admin", description="owner / admin")
+
+
+class AdminCreateAdminResponse(BaseModel):
+    userId: str
+    username: str
+    role: str
+    status: str
+    createdAt: datetime
+
+
+class AdminUpdateAdminRequest(BaseModel):
+    """PATCH /v1/admin/admins/{userId} 请求体。"""
+
+    status: str | None = Field(default=None, description="active / locked")
+    role: str | None = Field(default=None, description="owner / admin")
+
+
+class AdminUpdateAdminResponse(BaseModel):
+    userId: str
+    role: str | None = None
+    status: str | None = None
+
+
+class AdminResetPasswordResponse(BaseModel):
+    """POST /v1/admin/admins/{userId}/reset-password 响应 data。"""
+
+    userId: str
+    newPassword: str = Field(..., description="一次性明文")
+
+
+class AdminDeleteAdminResponse(BaseModel):
+    """DELETE /v1/admin/admins/{userId} 响应 data。"""
+
+    userId: str
+    deletedAt: datetime
+
+
 __all__ = [
     # auth
     "AdminLoginRequest",
@@ -284,4 +349,13 @@ __all__ = [
     "AdminAuditSummaryResponse",
     # metrics
     "AdminMetricsSummary",
+    # admins (2026-08-06 M3)
+    "AdminAccountListItem",
+    "AdminAccountListResponse",
+    "AdminCreateAdminRequest",
+    "AdminCreateAdminResponse",
+    "AdminUpdateAdminRequest",
+    "AdminUpdateAdminResponse",
+    "AdminResetPasswordResponse",
+    "AdminDeleteAdminResponse",
 ]
