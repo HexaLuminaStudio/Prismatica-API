@@ -1,11 +1,16 @@
-"""Routers 模块聚合导出。"""
+"""Routers 模块聚合导出(2026-08-06 重构)。
 
-from app.routers import account, admin, admin_auth, auth, billing, public
+admin / admin_auth 拆分 → admin_auth / users / codes / audit / metrics
+"""
+from app.routers import account, admin_audit, admin_auth, admin_codes, admin_metrics, admin_users, auth, billing, public
 
 __all__ = [
     "account",
-    "admin",
+    "admin_audit",
     "admin_auth",
+    "admin_codes",
+    "admin_metrics",
+    "admin_users",
     "auth",
     "billing",
     "public",

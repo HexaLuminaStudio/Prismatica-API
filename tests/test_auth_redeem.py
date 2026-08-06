@@ -18,7 +18,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import LicenseCodeSeen, UserAccount, UserBalance, UserDevice
+from app.models import LicenseCode, UserAccount, UserBalance, UserDevice
 from app.security import hmac as hmacUtil
 from app.services.auth_service import redeemCode
 
@@ -104,7 +104,7 @@ def test_redeem_new_code_creates_uuid4_user(db):
     assert device is not None
     assert device.userId == r.user.userId
     # 幂等表已消费
-    seen = db.get(LicenseCodeSeen, hmacUtil.hashCode(code))
+    seen = db.get(LicenseCode, hmacUtil.hashCode(code))
     assert seen is not None
     assert seen.consumedByUserId == r.user.userId
 
@@ -121,7 +121,7 @@ def test_same_code_second_redeem_restores_identity_no_double_grant(db):
     assert r2.user.userId == r1.user.userId  # 跨设备恢复同一身份
     assert r2.balance.balance == 100  # 已消费 → 跳过赠予
     # 幂等表消费记录未改变
-    seen = db.get(LicenseCodeSeen, hmacUtil.hashCode(code))
+    seen = db.get(LicenseCode, hmacUtil.hashCode(code))
     assert seen.consumedByUserId == r1.user.userId
     assert seen.consumedAt is not None
 

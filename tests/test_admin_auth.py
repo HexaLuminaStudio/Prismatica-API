@@ -1,14 +1,15 @@
-"""Admin 后端单测(2026-08-05 M2 B4)。
+"""Admin 后端单测(2026-08-06 重构:统一 envelope + 新路径)。
 
 覆盖:
-    - /admin/health 无需鉴权
-    - /admin/login 缺字段 → 400
+    - /v1/admin/health 无需鉴权
+    - /v1/admin/auth/login 缺字段 → 400(BAD_REQUEST envelope)
     - cookie 工具:make + verify 双向 / 错误签名 / 空值
-    - requireAdminCookie 在无 cookie 时 → 401
+    - requireAdminCookie 在无 cookie 时 → 401(ADMIN_LOGIN_REQUIRED)
     - requireAdminCookie 在错误 cookie 时 → 401
-    - /openapi.json 包含 admin/* 与 /v1/admin/* 路径
+    - /openapi.json 包含新 /v1/admin/* 路径
+    - X-Admin-Token 直通(curl/脚本兼容)
+    - 新统一 envelope:2xx 顶层有 code=OK,4xx 顶层有 code/message
 """
-
 from __future__ import annotations
 
 import pytest
@@ -35,35 +36,41 @@ def client(app):
 
 
 # ---------------------------------------------------------------------------
-# /admin/health
+# /v1/admin/health
 # ---------------------------------------------------------------------------
 
 
 def test_admin_health_no_auth_needed(client):
-    resp = client.get("/admin/health")
+    resp = client.get("/v1/admin/health")
     assert resp.status_code == 200
-    assert resp.get_json()["scope"] == "admin"
+    body = resp.get_json()
+    assert body["code"] == "OK"
+    assert body["data"]["scope"] == "admin"
 
 
 # ---------------------------------------------------------------------------
-# /admin/login 缺字段 → 400(BAD_REQUEST envelope,纯 Pydantic 校验不查 DB)
+# /v1/admin/auth/login 缺字段 → 400(BAD_REQUEST envelope,顶层 code/message)
 # ---------------------------------------------------------------------------
 
 
 def test_admin_login_missing_password_returns_400(client):
-    resp = client.post("/admin/login", json={"username": "root"})
+    resp = client.post("/v1/admin/auth/login", json={"username": "root"})
     assert resp.status_code == 400
     body = resp.get_json()
-    assert body["error"]["code"] == "BAD_REQUEST"
+    assert body["code"] == "BAD_REQUEST"
+    assert body["message"]
+    assert body.get("requestId")  # 由 request_id 中间件注入
 
 
 def test_admin_login_missing_username_returns_400(client):
-    resp = client.post("/admin/login", json={"password": "anything"})
+    resp = client.post("/v1/admin/auth/login", json={"password": "anything"})
     assert resp.status_code == 400
+    body = resp.get_json()
+    assert body["code"] == "BAD_REQUEST"
 
 
 # ---------------------------------------------------------------------------
-# cookie 工具单元测试(纯函数,无需 DB)
+# cookie 工具单元测试
 # ---------------------------------------------------------------------------
 
 
@@ -76,8 +83,7 @@ def test_make_and_verify_session_value_roundtrip():
 
 
 def test_verify_session_value_bad_signature_returns_none():
-    payload = verifySessionValue("abc.bad_signature")
-    assert payload is None
+    assert verifySessionValue("abc.bad_signature") is None
 
 
 def test_verify_session_value_invalid_format_returns_none():
@@ -95,7 +101,8 @@ def test_admin_users_no_cookie_returns_401(client):
     resp = client.get("/v1/admin/users")
     assert resp.status_code == 401
     body = resp.get_json()
-    assert body["error"]["code"] == "ADMIN_LOGIN_REQUIRED"
+    assert body["code"] == "ADMIN_LOGIN_REQUIRED"
+    assert body["message"]
 
 
 def test_admin_users_with_bad_cookie_returns_401(client):
@@ -107,8 +114,9 @@ def test_admin_users_with_bad_cookie_returns_401(client):
 
 
 def test_admin_metrics_no_cookie_returns_401(client):
-    resp = client.get("/v1/admin/metrics-summary")
+    resp = client.get("/v1/admin/metrics/summary")
     assert resp.status_code == 401
+    assert resp.get_json()["code"] == "ADMIN_LOGIN_REQUIRED"
 
 
 def test_admin_audit_no_cookie_returns_401(client):
@@ -117,7 +125,7 @@ def test_admin_audit_no_cookie_returns_401(client):
 
 
 def test_admin_audit_summary_no_cookie_returns_401(client):
-    resp = client.get("/v1/admin/audit-summary")
+    resp = client.get("/v1/admin/audit/summary")
     assert resp.status_code == 401
 
 
@@ -131,25 +139,8 @@ def test_admin_users_revoke_no_cookie_returns_401(client):
     assert resp.status_code == 401
 
 
-def test_admin_grant_still_requires_admin_token_or_cookie(client):
-    """grant 仍走 requireAdminToken(curl 兼容),无 token → 403。"""
-    resp = client.post(
-        "/v1/admin/grant",
-        json={"userId": "u1", "amount": 10, "note": "x"},
-    )
-    assert resp.status_code == 403
-
-
-def test_admin_issue_codes_still_requires_admin_token(client):
-    resp = client.post(
-        "/v1/admin/issue-codes",
-        json={"kind": "invite", "count": 1},
-    )
-    assert resp.status_code == 403
-
-
 # ---------------------------------------------------------------------------
-# /openapi.json 包含 admin/* 与 /v1/admin/* 路径
+# /openapi.json 包含新 /v1/admin/* 路径
 # ---------------------------------------------------------------------------
 
 
@@ -159,20 +150,24 @@ def test_openapi_includes_admin_routes(app):
     assert resp.status_code == 200
     spec = resp.get_json()
     paths = spec["paths"]
-    # login/logout/me 在 /admin/* 蓝图下
-    assert any(p.endswith("/admin/login") for p in paths), paths
-    assert any(p.endswith("/admin/logout") for p in paths), paths
-    assert any(p.endswith("/admin/me") for p in paths), paths
-    # v1 admin 用户管理
+    # auth
+    assert any(p.endswith("/v1/admin/auth/login") for p in paths), paths
+    assert any(p.endswith("/v1/admin/auth/logout") for p in paths), paths
+    assert any(p.endswith("/v1/admin/auth/me") for p in paths), paths
+    # users
     assert any(p.endswith("/v1/admin/users") for p in paths), paths
-    assert any(p.endswith("/v1/admin/audit") for p in paths), paths
-    assert any(p.endswith("/v1/admin/audit-summary") for p in paths), paths
-    assert any(p.endswith("/v1/admin/metrics-summary") for p in paths), paths
+    # codes
+    assert any(p.endswith("/v1/admin/codes") for p in paths), paths
     assert any(p.endswith("/v1/admin/codes/lookup") for p in paths), paths
+    # audit
+    assert any(p.endswith("/v1/admin/audit") for p in paths), paths
+    assert any(p.endswith("/v1/admin/audit/summary") for p in paths), paths
+    # metrics
+    assert any(p.endswith("/v1/admin/metrics/summary") for p in paths), paths
 
 
 # ---------------------------------------------------------------------------
-# X-Admin-Token 直通(curl 兼容路径)
+# X-Admin-Token 直通(curl 兼容路径) - 注意:旧 grant / issue-codes 端点已下线
 # ---------------------------------------------------------------------------
 
 
@@ -181,9 +176,35 @@ def test_admin_with_correct_token_passes_through_to_endpoint(app):
     settings = getSettings()
     client = app.test_client()
     resp = client.get(
-        "/v1/admin/metrics-summary",
+        "/v1/admin/metrics/summary",
         headers={"X-Admin-Token": settings.adminToken},
     )
     # 不连 DB → endpoint 会抛 DB 错误 → 500;但 status 不会是 401/403 即视为通过 requireAdminCookie
     assert resp.status_code in (200, 500)
     assert resp.status_code not in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# 成功响应必须包 envelope(code=OK + data)
+# ---------------------------------------------------------------------------
+
+
+def test_health_response_envelope(client):
+    resp = client.get("/v1/admin/health")
+    body = resp.get_json()
+    assert body["code"] == "OK"
+    assert "data" in body
+    assert "requestId" in body
+
+
+# ---------------------------------------------------------------------------
+# 404/405 走统一 envelope
+# ---------------------------------------------------------------------------
+
+
+def test_404_envelope(client):
+    resp = client.get("/v1/admin/this-does-not-exist")
+    assert resp.status_code == 404
+    body = resp.get_json()
+    assert body["code"] == "NOT_FOUND"
+    assert body["message"]

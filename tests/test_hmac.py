@@ -6,7 +6,7 @@ import json
 from datetime import datetime, timedelta
 
 from app.config import getSettings
-from app.models.license_models import InviteCode, RechargeCode, TrialCode, UserTier
+from app.models.user import InviteCode, RechargeCode, TrialCode, UserTier  # 2026-08-06:从 license_models 迁移到 user
 from app.security import hmac as hmacUtil
 
 _settings = getSettings()

@@ -1,16 +1,11 @@
-"""管理员鉴权服务(2026-08-05 M2 B1)
+"""管理员鉴权服务(2026-08-06 重构):
 
-提供:
-    - loginByPassword:bcrypt 校验 + 失败计数 + 锁定(连续失败 >= max → 锁)
-    - 写 audit_logs(成功/失败两条记录)
-
-不动 session cookie(set/clear 由 router 层用 admin_session 工具)
+- loginByPassword(db, username, password, ip) → AdminUser(成功) / ApiError(失败)
+- changePassword(db, userId, newPassword) → None
+- 写 audit_logs 由 admin_audit_service.recordAudit 代理
 """
-
 from __future__ import annotations
 
-import secrets
-import uuid
 from datetime import UTC, datetime
 
 from loguru import logger
@@ -18,46 +13,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import getSettings
-from app.db import getDb
 from app.errors import ApiError
-from app.models import AdminUser, AuditLog
+from app.models import AdminUser
 from app.security.password import hashPassword, verifyPassword
-
+from app.services.admin_audit_service import recordAudit
 
 _settings = getSettings()
-
-
-# ---------------------------------------------------------------------------
-# 工具
-# ---------------------------------------------------------------------------
-
-
-def _audit(
-    actor: str,
-    action: str,
-    targetUser: str | None = None,
-    details: dict | None = None,
-    ip: str | None = None,
-) -> None:
-    """写审计日志(独立事务,失败不影响主流程)。"""
-    try:
-        with getDb() as db:
-            db.add(
-                AuditLog(
-                    actor=actor,
-                    action=action,
-                    targetUser=targetUser,
-                    details=details,
-                    ip=ip,
-                )
-            )
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"[AdminAuth] audit 失败: {e}")
-
-
-# ---------------------------------------------------------------------------
-# 公开 API
-# ---------------------------------------------------------------------------
 
 
 def loginByPassword(
@@ -69,8 +30,8 @@ def loginByPassword(
     """用户名密码登录(成功 → 返回 AdminUser,失败 → ApiError)。
 
     错误码:
-        - 401 ADMIN_INVALID_CREDENTIALS:用户名或密码错
-        - 423 ADMIN_ACCOUNT_LOCKED:连续失败次数超阈值,账号被锁
+        - 401 ADMIN_INVALID_CREDENTIALS
+        - 423 ADMIN_ACCOUNT_LOCKED
     """
     if not username or not password:
         raise ApiError("ADMIN_INVALID_CREDENTIALS", httpStatus=401)
@@ -80,11 +41,11 @@ def loginByPassword(
     ).scalar_one_or_none()
 
     if user is None:
-        _audit("anonymous", "admin.login_failed", details={"username": username}, ip=ip)
+        recordAudit("anonymous", "admin.login_failed", details={"username": username}, ip=ip)
         raise ApiError("ADMIN_INVALID_CREDENTIALS", httpStatus=401)
 
     if user.status == "locked":
-        _audit(user.username, "admin.login_locked", details={"reason": "locked"}, ip=ip)
+        recordAudit(user.username, "admin.login_locked", details={"reason": "locked"}, ip=ip)
         raise ApiError("ADMIN_ACCOUNT_LOCKED", httpStatus=423)
 
     if not verifyPassword(password, user.passwordHash):
@@ -92,7 +53,7 @@ def loginByPassword(
         if user.failedAttempts >= _settings.adminMaxFailedAttempts:
             user.status = "locked"
             db.commit()
-            _audit(
+            recordAudit(
                 user.username,
                 "admin.login_locked",
                 details={"reason": "too_many_failures", "failedAttempts": user.failedAttempts},
@@ -100,7 +61,7 @@ def loginByPassword(
             )
             raise ApiError("ADMIN_ACCOUNT_LOCKED", httpStatus=423)
         db.commit()
-        _audit(
+        recordAudit(
             user.username,
             "admin.login_failed",
             details={"failedAttempts": user.failedAttempts},
@@ -112,22 +73,18 @@ def loginByPassword(
     user.failedAttempts = 0
     user.lastLoginAt = datetime.now(UTC).replace(tzinfo=None)
     db.commit()
-    _audit(user.username, "admin.login_success", ip=ip)
+    recordAudit(user.username, "admin.login_success", ip=ip)
     return user
 
 
-def changePassword(
-    db: Session,
-    userId: str,
-    newPassword: str,
-) -> None:
-    """修改密码(供 /admin/me/change-password 路由调用)。"""
+def changePassword(db: Session, userId: str, newPassword: str) -> None:
+    """修改密码(供 /v1/admin/auth/change-password 调用)。"""
     user = db.get(AdminUser, userId)
     if user is None:
         raise ApiError("NOT_FOUND", "管理员账号不存在")
     user.passwordHash = hashPassword(newPassword)
     db.commit()
-    _audit(user.username, "admin.change_password")
+    recordAudit(user.username, "admin.change_password")
 
 
 __all__ = ["loginByPassword", "changePassword"]

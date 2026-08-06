@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS license_codes (
     consumed_ip         VARCHAR(64) NULL,
     -- 仅在 issue 时一次性返回的明文 code(后续不可再查;废弃/补发请重新 issue)
     raw_code_signature  VARCHAR(512) NULL,
-    CONSTRAINT chk_license_codes_kind CHECK (code_kind IN ('invite','trial','recharge')),
+    CONSTRAINT chk_license_codes_kind CHECK (code_kind IN ('invite','trial','recharge','activation')),
     CONSTRAINT chk_license_codes_status CHECK (status IN ('active','consumed','revoked','expired')),
     CONSTRAINT chk_license_codes_amount CHECK (amount IS NULL OR amount > 0),
     KEY idx_license_codes_kind_status (code_kind, status),

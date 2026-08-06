@@ -41,8 +41,9 @@ def test_404_envelope(app):
     resp = client.get("/v1/nonexistent")
     assert resp.status_code == 404
     data = resp.get_json()
-    assert "error" in data
-    assert data["error"]["code"] == "NOT_FOUND"
+    # 2026-08-06 统一 envelope:顶层 code/message,不再嵌套 error
+    assert data["code"] == "NOT_FOUND"
+    assert data["message"]
 
 
 def test_invalid_code_envelope(app):
@@ -54,7 +55,7 @@ def test_invalid_code_envelope(app):
     )
     assert resp.status_code == 400
     data = resp.get_json()
-    assert data["error"]["code"] == "INVALID_CODE"
+    assert data["code"] == "INVALID_CODE"
 
 
 def test_missing_auth_returns_401(app):
@@ -62,4 +63,4 @@ def test_missing_auth_returns_401(app):
     resp = client.get("/v1/account/me")
     assert resp.status_code == 401
     data = resp.get_json()
-    assert data["error"]["code"] == "UNAUTHORIZED"
+    assert data["code"] == "UNAUTHORIZED"

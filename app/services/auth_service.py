@@ -18,14 +18,14 @@ from sqlalchemy.orm import Session
 from app.config import getSettings
 from app.errors import ApiError
 from app.models import (
-    LicenseCodeSeen,
+    LicenseCode,
     RechargeRecord,
     RefreshToken,
     UserAccount,
     UserBalance,
     UserDevice,
 )
-from app.models.license_models import (
+from app.models.user import (
     ActivationCode,
     InviteCode,
     RechargeCode,
@@ -271,8 +271,8 @@ def redeemCode(
         if not model.amount or model.amount <= 0:
             raise ApiError("INVALID_CODE", "充值码金额无效")
 
-        existing = db.get(LicenseCodeSeen, codeHash)
-        if existing is not None and existing.rechargeUserId is not None:
+        existing = db.get(LicenseCode, codeHash)
+        if existing is not None and existing.status == "consumed":
             raise ApiError("ALREADY_USED", "该充值码已被使用")
         expireAt = _toNaive(model.expireAt)
         if expireAt < now:
@@ -306,24 +306,24 @@ def redeemCode(
         try:
             if existing is None:
                 db.add(
-                    LicenseCodeSeen(
+                    LicenseCode(
                         codeHash=codeHash,
                         codeKind="recharge",
-                        issuedAt=model.issuedAt,
+                        status="consumed",
+                        amount=model.amount,
+                        issuedBy="system",
+                        issuedAt=getattr(model, "issuedAt", now),
+                        expireAt=expireAt,
                         consumedAt=now,
                         consumedByUserId=userId,
-                        consumeIp=clientIp,
-                        rechargeUserId=userId,
-                        rechargeAmount=model.amount,
-                        expireAt=expireAt,
+                        consumedIp=clientIp,
                     )
                 )
             else:
+                existing.status = "consumed"
                 existing.consumedAt = now
                 existing.consumedByUserId = userId
-                existing.consumeIp = clientIp
-                existing.rechargeUserId = userId
-                existing.rechargeAmount = model.amount
+                existing.consumedIp = clientIp
             db.flush()
         except IntegrityError:
             db.rollback()
@@ -341,9 +341,9 @@ def redeemCode(
         )
 
     # ============ 邀请 / 体验 / 激活码:设备绑定 + 幂等恢复 ============
-    existing = db.get(LicenseCodeSeen, codeHash)
-    codeConsumed = existing is not None and existing.consumedAt is not None
-    consumedUserId = existing.consumedByUserId if codeConsumed else None
+    existing = db.get(LicenseCode, codeHash)
+    codeConsumed = existing is not None and existing.status == "consumed"
+    consumedUserId = existing.consumedByUserId if (codeConsumed and existing is not None) else None
 
     # 码自身有效期(激活码用 validityPeriod 日期,其余用 expireAt)
     if kind == "activation":
@@ -422,14 +422,16 @@ def redeemCode(
         # 写幂等表(若 INSERT 冲突说明并发已消费 → 409)
         try:
             db.add(
-                LicenseCodeSeen(
+                LicenseCode(
                     codeHash=codeHash,
                     codeKind=kind,
+                    status="consumed",
+                    issuedBy="system",
                     issuedAt=getattr(model, "issuedAt", now),
+                    expireAt=codeExpire,
                     consumedAt=now,
                     consumedByUserId=user.userId,
-                    consumeIp=clientIp,
-                    expireAt=codeExpire,
+                    consumedIp=clientIp,
                 )
             )
             db.flush()
