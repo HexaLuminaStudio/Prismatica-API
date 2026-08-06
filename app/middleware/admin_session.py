@@ -78,7 +78,13 @@ def verifySessionValue(value: str) -> dict[str, Any] | None:
 
 
 def setSessionCookie(resp: Response, userId: str, username: str) -> Response:
-    """给 Response 注入 Set-Cookie,HttpOnly + SameSite=Lax + maxAge。"""
+    """给 Response 注入 Set-Cookie,HttpOnly + maxAge。
+
+    SameSite/Secure 策略(2026-08-06 M2 cors-fix):
+        - 默认(同源 HTTP 开发模式):Secure=False, SameSite=Lax
+        - 跨端口 / HTTPS 生产:Secure=True, SameSite=None
+          (SameSite=None 必须配 Secure,否则浏览器拒绝 Set-Cookie)
+    """
     settings = getSettings()
     value = makeSessionValue(userId=userId, username=username)
     resp.set_cookie(
@@ -86,8 +92,8 @@ def setSessionCookie(resp: Response, userId: str, username: str) -> Response:
         value,
         max_age=settings.adminCookieMaxAgeSec,
         httponly=True,
-        secure=False,  # 本期同源 HTTP;生产切 True(走 HTTPS)
-        samesite="Lax",
+        secure=settings.adminCookieSecure,
+        samesite="None" if settings.adminCookieSecure else "Lax",
         path="/",
     )
     return resp

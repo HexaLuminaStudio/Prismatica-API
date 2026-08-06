@@ -89,3 +89,73 @@ def testCors_realRequestHeadersOnAllowedOrigin(client):
     )
     # DB 不可达 → 503,只要 CORS 头还在就算通过
     assert res.headers.get("Access-Control-Allow-Origin") == "https://app.example.com"
+
+
+def testCors_credentialsModeWithCrossPortOrigin(monkeypatch):
+    """(2026-08-06 M2 cors-fix)凭据模式 + 跨端口 origin 预检。
+
+    模拟生产部署:前端 http://103.236.55.211:8080,后端 :8000,
+    supports_credentials=True。预检 OPTIONS 必须:
+      - 回显该 origin
+      - 显式返回 Access-Control-Allow-Credentials: true
+      - 不返回 "*"(浏览器会拒绝带凭证的 "*")
+    """
+    from app.config import getSettings
+    from app.main import createApp
+
+    settings = getSettings()
+    monkeypatch.setattr(
+        settings,
+        "corsAllowedOrigins",
+        "http://103.236.55.211:8080",
+    )
+    monkeypatch.setattr(settings, "corsAllowCredentials", True)
+    monkeypatch.setattr(settings, "corsMaxAgeSec", 600)
+
+    app = createApp()
+    app.config["TESTING"] = True
+    testClient = app.test_client()
+
+    res = testClient.options(
+        "/v1/admin/auth/login",
+        headers={
+            "Origin": "http://103.236.55.211:8080",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "Content-Type",
+        },
+    )
+    assert res.status_code in (200, 204)
+    assert res.headers.get("Access-Control-Allow-Origin") == "http://103.236.55.211:8080"
+    # 凭据模式关键头
+    assert res.headers.get("Access-Control-Allow-Credentials") == "true"
+    # 不应是 "*"
+    assert res.headers.get("Access-Control-Allow-Origin") != "*"
+
+
+def testCors_originNotInAllowlistNotCredentialed(monkeypatch):
+    """(2026-08-06 M2 cors-fix)凭据模式下,恶意 origin 不应回 ACAO。"""
+    from app.config import getSettings
+    from app.main import createApp
+
+    settings = getSettings()
+    monkeypatch.setattr(
+        settings,
+        "corsAllowedOrigins",
+        "http://103.236.55.211:8080",
+    )
+    monkeypatch.setattr(settings, "corsAllowCredentials", True)
+
+    app = createApp()
+    app.config["TESTING"] = True
+    testClient = app.test_client()
+
+    res = testClient.options(
+        "/v1/admin/auth/login",
+        headers={
+            "Origin": "http://evil.example.com",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+    # 不应给未授权 origin 回显自己的 ACAO
+    acao = res.headers.get("Access-Control-Allow-Origin")
+    assert acao != "http://evil.example.com"

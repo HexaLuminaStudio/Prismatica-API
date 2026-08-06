@@ -104,6 +104,14 @@ class Settings(BaseSettings):
         alias="ADMIN_MAX_FAILED_ATTEMPTS",
         description="(2026-08-05 M2) 连续登录失败 N 次后锁定账号",
     )
+    adminCookieSecure: bool = Field(
+        default=False,
+        alias="ADMIN_COOKIE_SECURE",
+        description=(
+            "(2026-08-06 M2 cors-fix) cookie Secure 标记;"
+            "HTTPS 或跨端口(需 SameSite=None)部署时设 true"
+        ),
+    )
 
     # ---- 限流 ----
     rateLimitPerMin: int = Field(default=60, alias="RATE_LIMIT_PER_MIN")
