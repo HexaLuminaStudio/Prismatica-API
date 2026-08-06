@@ -254,6 +254,37 @@ class AdminMetricsSummary(BaseModel):
 
 
 # ===========================================================================
+# bills — 账单管理(2026-08-06 新增)
+# ===========================================================================
+
+
+class AdminBillListItem(BaseModel):
+    """GET /v1/admin/bills 单条。"""
+
+    billId: str
+    userId: str
+    displayName: str | None = None
+    actionType: str
+    actionDisplayName: str
+    estimatedCost: int
+    realCost: int
+    resourceUsed: int
+    balanceBefore: int
+    balanceAfter: int
+    status: str = Field(..., description="pending / settled / refunded")
+    taskId: str
+    description: str
+    idempotencyKey: str | None = None
+    createdAt: datetime
+    settledAt: datetime | None = None
+
+
+class AdminBillListResponse(BaseModel):
+    items: list[AdminBillListItem]
+    nextCursor: str | None = None
+
+
+# ===========================================================================
 # admins — 管理员账号管理(2026-08-06 M3 新增,owner-only)
 # ===========================================================================
 
@@ -349,6 +380,9 @@ __all__ = [
     "AdminAuditSummaryResponse",
     # metrics
     "AdminMetricsSummary",
+    # bills (2026-08-06 新增)
+    "AdminBillListItem",
+    "AdminBillListResponse",
     # admins (2026-08-06 M3)
     "AdminAccountListItem",
     "AdminAccountListResponse",

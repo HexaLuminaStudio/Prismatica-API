@@ -108,7 +108,9 @@ def createApp() -> Flask:
     from app.routers.admin_admins import bp as adminAdminsBp
     from app.routers.admin_audit import bp as adminAuditBp
     from app.routers.admin_auth import bp as adminAuthBp
+    from app.routers.admin_bills import bp as adminBillsBp
     from app.routers.admin_codes import bp as adminCodesBp
+    from app.routers.admin_exports import bp as adminExportsBp
     from app.routers.admin_metrics import bp as adminMetricsBp
     from app.routers.admin_users import bp as adminUsersBp
     from app.routers.auth import bp as authBp
@@ -121,6 +123,8 @@ def createApp() -> Flask:
     app.register_blueprint(adminAuthBp)
     app.register_blueprint(adminUsersBp)
     app.register_blueprint(adminCodesBp)
+    app.register_blueprint(adminBillsBp)
+    app.register_blueprint(adminExportsBp)
     app.register_blueprint(adminAuditBp)
     app.register_blueprint(adminMetricsBp)
     app.register_blueprint(adminAdminsBp)

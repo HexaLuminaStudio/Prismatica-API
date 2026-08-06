@@ -95,6 +95,12 @@ deploy/
 | 管理 | `GET /v1/admin/audit-summary` | Cookie | 按 action group by + 计数(看板) |
 | 管理 | `GET /v1/admin/metrics-summary` | Cookie | 看板 KPI:用户总数 / 7 日活跃 / grant 总额 |
 | 管理 | `GET /v1/admin/codes/lookup?code=...` | Cookie | 查询某个 RCH/INV/TRY 状态 |
+| 管理 | `GET /v1/admin/bills` | Cookie | 账单列表(分页 + status/userId/days 过滤) |
+| 管理 | `GET /v1/admin/bills/{billId}` | Cookie | 账单详情(含用户 displayName) |
+| 管理 | `GET /v1/admin/export/users.csv` | Cookie | 用户列表 CSV 导出(limit ≤ 10000) |
+| 管理 | `GET /v1/admin/export/audit.csv` | Cookie | 审计日志 CSV 导出(days/action/actor/targetUser 过滤) |
+| 管理 | `GET /v1/admin/export/codes.csv` | Cookie | 凭证列表 CSV 导出(kind/status 过滤,不含明文 code) |
+| 管理 | `GET /v1/admin/export/bills.csv` | Cookie | 账单流水 CSV 导出(status/userId/days 过滤) |
 
 ## 与前端对接契约
 
