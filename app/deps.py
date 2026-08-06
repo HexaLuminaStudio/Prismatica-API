@@ -18,6 +18,18 @@ from app.security.jwt import decodeAccessToken
 _settings = getSettings()
 
 
+def _naiveUtcToEpoch(dt) -> int:
+    """把 naive UTC datetime 转为 epoch 秒(避免依赖本地时区)。
+
+    DB 列 DATETIME(3) 是 naive 且 MySQL session 时区一般是 UTC;
+    直接 .timestamp() 会按本地时区解释,在不同时区的环境里算出错误值,
+    甚至在早于 1970 的日期触发 OSError / ValueError → 500 INTERNAL_ERROR。
+    """
+    from datetime import UTC
+
+    return int(dt.replace(tzinfo=UTC).timestamp())
+
+
 def requireAuth(func):
     """装饰器:从 Authorization: Bearer <jwt> 解析 userId,放入 flask.g.userId。"""
 
@@ -102,11 +114,14 @@ def requireAdminCookie(func):
                     raise ApiError("ADMIN_LOGIN_REQUIRED", httpStatus=401)
                 role = row.role
                 pwdResetAt = row.pwdResetAt
-                # 密码已重置?旧 cookie 失效(cookieTs < pwdResetAt)
+                # 密码已重置?旧 cookie 失效(cookieTs < pwdResetAt epoch)
+                # DB 存的是 naive UTC,必须显式补 UTC tzinfo 后再 .timestamp(),
+                # 否则会按进程本地时区解释,容器/Windows 跨时区会出现"cookie 永远失效"
+                # 甚至负 epoch → OverflowError / OSError → 500 INTERNAL_ERROR。
                 if (
                     pwdResetAt is not None
                     and cookieTs is not None
-                    and int(cookieTs) < int(pwdResetAt.timestamp())
+                    and int(cookieTs) < _naiveUtcToEpoch(pwdResetAt)
                 ):
                     raise ApiError("ADMIN_LOGIN_REQUIRED", httpStatus=401)
                 # locked 状态拒绝访问

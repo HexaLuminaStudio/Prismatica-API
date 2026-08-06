@@ -170,3 +170,34 @@ def test_admin_update_request_empty_body_rejected():
     r = AdminUpdateAdminRequest()
     assert r.status is None and r.role is None
     # 这里只是确认默认 None,业务层会拒"两者都为空"
+
+
+# ---------------------------------------------------------------------------
+# 关键回归:naive datetime → epoch 转换(2026-08-06 M3 hotfix)
+#   跨时区部署下,DB pwd_reset_at(naive UTC)直接 .timestamp() 会按本地时区解释,
+#   容易触发 OSError / 错误的 401 / 错误的 INTERNAL_ERROR。这里锁定 UTC 行为。
+# ---------------------------------------------------------------------------
+
+
+def test_naive_utc_to_epoch_returns_known_value():
+    from datetime import UTC, datetime
+
+    from app.deps import _naiveUtcToEpoch
+
+    # 2026-08-06 00:00:00 UTC(用 Python 实时验证 expected)
+    expected = int(datetime(2026, 8, 6, 0, 0, 0, tzinfo=UTC).timestamp())
+    assert _naiveUtcToEpoch(datetime(2026, 8, 6, 0, 0, 0)) == expected
+    # 任一近期 naive datetime 都应得到 > 0 的 epoch
+    assert _naiveUtcToEpoch(datetime(2020, 1, 1)) > 0
+
+
+def test_naive_utc_to_epoch_handles_pre_1970_without_overflow():
+    """远早日期不能抛 OSError(naive 直接 .timestamp() 在某些 Python 会爆)。"""
+    from datetime import datetime
+
+    from app.deps import _naiveUtcToEpoch
+
+    # 1900 年日期 .timestamp() 在 naive+本地时区负偏移时会抛 OSError
+    # 我们保证 UTC 解释后得到负数(允许),不抛异常
+    v = _naiveUtcToEpoch(datetime(1900, 1, 1))
+    assert v < 0  # 1900 早于 epoch,自然为负
