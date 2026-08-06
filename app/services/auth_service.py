@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import getSettings
+from app.db import getDb
 from app.errors import ApiError
 from app.models import (
     LicenseCode,
@@ -205,21 +206,31 @@ def _issueRefreshToken(
 
 
 def _parseAndVerify(rawCode: str):
-    """解码 + 验签 + 反序列化为 Pydantic 模型。
+    """解码 + 验签 + 反序列化为 Pydantic 模型(2026-08-06 降级)。
+
+    兼容两种入参格式:
+        1. base64(json+sig) — 完整 signed payload,客户端直接 redeem
+        2. 明文 INV-/TRY-/RCH- 码 — admin 后台签发后给用户的明文形式,
+           走 license_codes 表反查元数据路径,**该路径不验签**
+           (因为明文码本身已是可信的,服务器自己用 sha256 找到了它)
 
     Returns:
         (kind: str, model, signature)
     """
-    try:
-        data = hmacUtil.decodeSignedCode(rawCode)
-    except ValueError as e:
-        raise ApiError("INVALID_CODE", f"码无效或已损坏: {e}") from e
+    data = _decodeRawCode(rawCode)
     signature = data.get("signature")
-    if not signature:
-        raise ApiError("INVALID_CODE", "凭证缺少 signature 字段")
     payloadWithoutSig = {k: v for k, v in data.items() if k != "signature"}
-    if not hmacUtil.verifyPayload(payloadWithoutSig, signature):
-        raise ApiError("INVALID_CODE", "凭证签名校验失败")
+
+    if signature:
+        # base64 signed payload 路径 — 必须通过验签
+        if not hmacUtil.verifyPayload(payloadWithoutSig, signature):
+            raise ApiError("INVALID_CODE", "凭证签名校验失败")
+    else:
+        # 明文码降级路径 — 仅允许明文码 + 表反查成功的结果无 signature
+        # 用 codeBody 形如 INV-/TRY-/RCH- 二次确认
+        raw = (rawCode or "").strip()
+        if not any(raw.startswith(p) for p in ("INV-", "TRY-", "RCH-")):
+            raise ApiError("INVALID_CODE", "凭证格式错误")
 
     codeField = data.get("code", "")
     prefix = codeField.split("-", 1)[0] if codeField else ""
@@ -244,6 +255,105 @@ def _parseAndVerify(rawCode: str):
     if not codeField:
         raise ApiError("INVALID_CODE", "凭证缺少 code 字段")
     raise ApiError("INVALID_CODE", f"未知凭证类型: {prefix}")
+
+
+def _decodeRawCode(rawCode: str) -> dict:
+    """解码 rawCode,自动兼容明文码(2026-08-06 新增;2026-08-06 降级)。
+
+    两条路径:
+        1. base64 signed payload — 客户端直接 redeem(payload 已含 code + 签名)
+        2. 明文 INV-/TRY-/RCH- 码 — admin 后台签发后给用户的明文形式;
+           通过 sha256(code) 在 license_codes 表里反查元数据,
+           直接用表里的元数据 + 明文 codeBody 构造 payload(不再二次 decodeSignedCode)
+
+    降级理由:若 license_codes.raw_code_signature 与历史旧格式不兼容,
+    直接二次 base64+JSON 解析会触发 Incorrect padding,redeem 失败;
+    改为不再依赖 raw_code_signature,只信任 license_codes 元数据列。
+    """
+    try:
+        return hmacUtil.decodeSignedCode(rawCode)
+    except ValueError:
+        # 不是 base64 signed payload,可能是 admin 给的明文码
+        pass
+
+    rawCode = (rawCode or "").strip()
+    # 仅尝试"明文 INV/TRY/RCH-XX-..."这种特征;长度阈值避免误匹配
+    if not rawCode or not any(rawCode.startswith(p) for p in ("INV-", "TRY-", "RCH-")):
+        raise ApiError(
+            "INVALID_CODE",
+            "码无效或已损坏: 凭证格式错误",
+        )
+
+    # 通过 codeHash 反查 license_codes 表的元数据,
+    # 直接用表列构造 payload,不再走 raw_code_signature。
+    from app.models import LicenseCode  # 局部导入避免循环
+
+    codeHash = hmacUtil.hashCode(rawCode)
+    with getDb() as db:
+        row = db.get(LicenseCode, codeHash)
+        if row is None:
+            raise ApiError(
+                "INVALID_CODE",
+                "码无效或已损坏: 未找到凭证或凭证已下线",
+            )
+        if row.codeKind == "activation":
+            # 存量激活码不含 codeBody 字段,走老路径(从 raw_code_signature 反查)
+            if not row.rawCodeSignature:
+                raise ApiError(
+                    "INVALID_CODE",
+                    "码无效或已损坏: 激活码凭证缺失",
+                )
+            try:
+                return hmacUtil.decodeSignedCode(row.rawCodeSignature)
+            except ValueError as e:
+                raise ApiError(
+                    "INVALID_CODE",
+                    f"码无效或已损坏: 服务端凭证异常 ({e})",
+                ) from e
+
+        # INV/TRY/RCH:用表元数据直接构造 payload
+        if row.expireAt is None:
+            raise ApiError(
+                "INVALID_CODE",
+                "码无效或已损坏: 凭证缺失有效期",
+            )
+        from app.models.user import UserTier
+
+        issuedAt = (
+            row.issuedAt
+            if row.issuedAt is not None
+            else datetime.now(UTC).replace(tzinfo=None)
+        )
+        expireAt = row.expireAt
+        payload: dict = {
+            "code": rawCode,
+            "issuedAt": issuedAt.isoformat(),
+            "expireAt": expireAt.isoformat(),
+            "version": 1,
+        }
+        if row.codeKind == "invite":
+            payload.update(
+                {
+                    "maxUses": 1,
+                    "grantedBalance": int(row.grantedBalance or 0),
+                    "grantedDays": int(row.grantedDays or 0),
+                    "tier": row.tier or UserTier.BETA.value,
+                }
+            )
+        elif row.codeKind == "trial":
+            payload.update(
+                {
+                    "maxUses": 1,
+                    "grantedBalance": int(row.grantedBalance or 0),
+                    "grantedDays": int(row.grantedDays or 0),
+                    "tier": UserTier.TRIAL.value,
+                }
+            )
+        elif row.codeKind == "recharge":
+            payload.update(
+                {"amount": int(row.amount or 0), "note": "admin issued"}
+            )
+        return payload
 
 
 def redeemCode(
@@ -419,21 +529,29 @@ def redeemCode(
         if grantExpire is not None and (user.expireAt is None or grantExpire > user.expireAt):
             user.expireAt = grantExpire
 
-        # 写幂等表(若 INSERT 冲突说明并发已消费 → 409)
+        # 写幂等表(2026-08-06:若 license_codes 已有 admin 预写的行(明文码路径)
+        # 则就地 UPDATE,不重复 INSERT,避免与 admin 签发的 rawCodeSignature 行主键冲突)
         try:
-            db.add(
-                LicenseCode(
-                    codeHash=codeHash,
-                    codeKind=kind,
-                    status="consumed",
-                    issuedBy="system",
-                    issuedAt=getattr(model, "issuedAt", now),
-                    expireAt=codeExpire,
-                    consumedAt=now,
-                    consumedByUserId=user.userId,
-                    consumedIp=clientIp,
+            if existing is None:
+                db.add(
+                    LicenseCode(
+                        codeHash=codeHash,
+                        codeKind=kind,
+                        status="consumed",
+                        issuedBy="system",
+                        issuedAt=getattr(model, "issuedAt", now),
+                        expireAt=codeExpire,
+                        consumedAt=now,
+                        consumedByUserId=user.userId,
+                        consumedIp=clientIp,
+                    )
                 )
-            )
+            else:
+                # 明文码路径:admin 已存 active 行,直接翻转为 consumed
+                existing.status = "consumed"
+                existing.consumedAt = now
+                existing.consumedByUserId = user.userId
+                existing.consumedIp = clientIp
             db.flush()
         except IntegrityError:
             db.rollback()

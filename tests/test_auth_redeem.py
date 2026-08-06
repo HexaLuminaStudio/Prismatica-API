@@ -173,3 +173,150 @@ def test_activation_code_second_redeem_idempotent(db):
     assert r2.user.userId == r1.user.userId
     assert r2.user.expireAt == r1.user.expireAt
     assert r2.balance.balance == 0
+
+
+# ---------------------------------------------------------------------------
+# 2026-08-06:明文 INV/TRY/RCH 码兑换(admin 后台下发给用户的明文形式)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def db_with_getdb(db, monkeypatch):
+    """把 app.db.getDb() 桩到当前测试 Session,让 _decodeRawCode 能查到 license_codes。"""
+    from contextlib import contextmanager
+
+    import app.services.auth_service as authSvc
+
+    @contextmanager
+    def _fakeGetDb():
+        try:
+            yield db
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+
+    monkeypatch.setattr(authSvc, "getDb", _fakeGetDb)
+    return db
+
+
+def test_plaintext_invite_code_redemption(db_with_getdb):
+    """明文 INV-XXX 码 → 通过 license_codes 表反查 signed payload 完成兑换。"""
+
+    # 1) admin 签发(等价 AdminCodeService.issueCodes):写 license_codes + 生成 signedPayload
+    plainCode = "INV-PLAIN-AAAA-BBBB-CCCC"
+    signedPayload = _inviteCode(code=plainCode)
+    row = LicenseCode(
+        codeHash=hmacUtil.hashCode(plainCode),
+        codeKind="invite",
+        status="active",
+        grantedBalance=100,
+        grantedDays=30,
+        tier="beta",
+        issuedBy="admin-test",
+        expireAt=datetime.utcnow() + timedelta(days=30),
+        rawCodeSignature=signedPayload,
+    )
+    db_with_getdb.add(row)
+    db_with_getdb.commit()
+
+    # 2) 用户粘贴明文码 → redeem 应成功(走 fallback 路径)
+    deviceId = "00000000-0000-0000-0000-00000000fff1"
+    r = redeemCode(db_with_getdb, plainCode, deviceId)
+
+    assert r.mode == "invite"
+    assert r.balance.balance == 100
+    assert r.user.tier == "beta"
+    # 幂等表已消费
+    seen = db_with_getdb.get(LicenseCode, hmacUtil.hashCode(plainCode))
+    assert seen.status == "consumed"
+    assert seen.consumedByUserId == r.user.userId
+
+
+def test_plaintext_code_not_in_db_rejected(db_with_getdb):
+    """明文 INV-XXX 码但 license_codes 表查不到 → INVALID_CODE。"""
+    from app.errors import ApiError
+
+    bogusCode = "INV-XXXX-YYYY-ZZZZ-0000"
+    deviceId = "00000000-0000-0000-0000-00000000fff2"
+    with pytest.raises(ApiError) as ei:
+        redeemCode(db_with_getdb, bogusCode, deviceId)
+    assert ei.value.code == "INVALID_CODE"
+
+
+def test_plaintext_code_no_signature_still_succeeds(db_with_getdb):
+    """license_codes 里有记录但 rawCodeSignature 缺失(2026-08-06 降级):
+    明文码路径不再依赖 raw_code_signature,只要元数据完整就允许兑换。
+    """
+    plainCode = "INV-NOSIG-AAAA-BBBB-CCCC"
+    row = LicenseCode(
+        codeHash=hmacUtil.hashCode(plainCode),
+        codeKind="invite",
+        status="active",
+        grantedBalance=100,
+        grantedDays=30,
+        tier="beta",
+        issuedBy="admin-test",
+        expireAt=datetime.utcnow() + timedelta(days=30),
+        rawCodeSignature=None,  # 关键:无 signed payload — 降级后必须仍然成功
+    )
+    db_with_getdb.add(row)
+    db_with_getdb.commit()
+
+    deviceId = "00000000-0000-0000-0000-00000000fff3"
+    r = redeemCode(db_with_getdb, plainCode, deviceId)
+    assert r.mode == "invite"
+    assert r.balance.balance == 100
+
+
+def test_plaintext_code_corrupt_signature_still_succeeds(db_with_getdb):
+    """license_codes 里 rawCodeSignature 损坏/截断 → 降级路径必须仍然成功。
+
+    旧行为:decodeSignedCode 抛 binascii.Error: Incorrect padding → INVALID_CODE
+    新行为:忽略 raw_code_signature,只用表元数据构造 payload。
+    """
+    plainCode = "INV-CORRUPT-AAAA-BBBB"
+    row = LicenseCode(
+        codeHash=hmacUtil.hashCode(plainCode),
+        codeKind="invite",
+        status="active",
+        grantedBalance=100,
+        grantedDays=30,
+        tier="beta",
+        issuedBy="admin-test",
+        expireAt=datetime.utcnow() + timedelta(days=30),
+        # 故意写一个非法 base64 — 旧路径下会抛 Incorrect padding
+        rawCodeSignature="not-valid-base64-payload",
+    )
+    db_with_getdb.add(row)
+    db_with_getdb.commit()
+
+    deviceId = "00000000-0000-0000-0000-00000000fff4"
+    r = redeemCode(db_with_getdb, plainCode, deviceId)
+    assert r.mode == "invite"
+    assert r.balance.balance == 100
+
+
+def test_plaintext_code_missing_expire_rejected(db_with_getdb):
+    """license_codes 元数据不完整(缺 expireAt)→ INVALID_CODE。"""
+    from app.errors import ApiError
+
+    plainCode = "INV-NOEXP-AAAA-BBBB-CCCC"
+    row = LicenseCode(
+        codeHash=hmacUtil.hashCode(plainCode),
+        codeKind="invite",
+        status="active",
+        grantedBalance=100,
+        grantedDays=30,
+        tier="beta",
+        issuedBy="admin-test",
+        expireAt=None,  # 关键:元数据缺失
+        rawCodeSignature="valid-or-not-irrelevant",
+    )
+    db_with_getdb.add(row)
+    db_with_getdb.commit()
+
+    with pytest.raises(ApiError) as ei:
+        redeemCode(db_with_getdb, plainCode, "00000000-0000-0000-0000-00000000fff5")
+    assert ei.value.code == "INVALID_CODE"
+    assert "有效期" in ei.value.message
