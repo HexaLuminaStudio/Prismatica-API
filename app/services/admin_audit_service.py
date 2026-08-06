@@ -15,13 +15,11 @@ from typing import Any
 from loguru import logger
 from sqlalchemy import func as saFunc
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from app.db import getDb
 from app.errors import ApiError
 from app.models import AuditLog, Bill, LicenseCode, RechargeRecord, UserAccount, UserDevice
 from app.security.hmac import hashCode
-
 
 # ---------------------------------------------------------------------------
 # 写入(独立事务,失败不影响主流程)

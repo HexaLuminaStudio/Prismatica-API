@@ -12,10 +12,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
-
 
 # ===========================================================================
 # auth — 认证
@@ -72,7 +71,7 @@ class AdminUserListResponse(BaseModel):
     """GET /v1/admin/users 响应 data。"""
 
     items: list[AdminUserListItem]
-    nextCursor: Optional[str] = None
+    nextCursor: str | None = None
 
 
 class AdminUserDetail(BaseModel):
@@ -87,8 +86,8 @@ class AdminUserDetail(BaseModel):
     totalSpent: int
     totalRecharged: int
     activatedAt: datetime
-    expireAt: Optional[datetime] = None
-    lastSeenAt: Optional[datetime] = None
+    expireAt: datetime | None = None
+    lastSeenAt: datetime | None = None
     deviceCount: int = 0
 
 
@@ -96,7 +95,7 @@ class AdminUpdateUserRequest(BaseModel):
     """PATCH /v1/admin/users/{userId} 请求体。"""
 
     tier: str = Field(..., description="guest / trial / beta / beta_pro / paid")
-    status: Optional[str] = Field(
+    status: str | None = Field(
         default=None, description="active / suspended / expired(可选)"
     )
 
@@ -155,10 +154,10 @@ class AdminIssuedCodeItem(BaseModel):
     signedPayload: str = Field(..., description="base64(JSON payload+signature)")
     codeKind: str
     status: str
-    grantedBalance: Optional[int] = None
-    grantedDays: Optional[int] = None
-    tier: Optional[str] = None
-    amount: Optional[int] = None
+    grantedBalance: int | None = None
+    grantedDays: int | None = None
+    tier: str | None = None
+    amount: int | None = None
     issuedBy: str
     issuedAt: datetime
     expireAt: datetime
@@ -174,21 +173,21 @@ class AdminCodeListItem(BaseModel):
     codeHash: str
     codeKind: str
     status: str
-    grantedBalance: Optional[int] = None
-    grantedDays: Optional[int] = None
-    tier: Optional[str] = None
-    amount: Optional[int] = None
+    grantedBalance: int | None = None
+    grantedDays: int | None = None
+    tier: str | None = None
+    amount: int | None = None
     issuedBy: str
     issuedAt: datetime
-    expireAt: Optional[datetime] = None
-    consumedAt: Optional[datetime] = None
-    consumedByUserId: Optional[str] = None
-    consumedIp: Optional[str] = None
+    expireAt: datetime | None = None
+    consumedAt: datetime | None = None
+    consumedByUserId: str | None = None
+    consumedIp: str | None = None
 
 
 class AdminCodeListResponse(BaseModel):
     items: list[AdminCodeListItem]
-    nextCursor: Optional[str] = None
+    nextCursor: str | None = None
 
 
 class AdminCodeLookupResponse(BaseModel):
@@ -197,9 +196,9 @@ class AdminCodeLookupResponse(BaseModel):
     codeKind: str
     codeHash: str
     status: str
-    consumedAt: Optional[datetime] = None
-    consumedByUserId: Optional[str] = None
-    rechargeAmount: Optional[int] = None
+    consumedAt: datetime | None = None
+    consumedByUserId: str | None = None
+    rechargeAmount: int | None = None
 
 
 class AdminCodeRevokeResponse(BaseModel):
@@ -216,15 +215,15 @@ class AdminAuditItem(BaseModel):
     auditId: int
     actor: str
     action: str
-    targetUser: Optional[str] = None
-    details: Optional[dict[str, Any]] = None
-    ip: Optional[str] = None
+    targetUser: str | None = None
+    details: dict[str, Any] | None = None
+    ip: str | None = None
     createdAt: datetime
 
 
 class AdminAuditResponse(BaseModel):
     items: list[AdminAuditItem]
-    nextCursor: Optional[str] = None
+    nextCursor: str | None = None
 
 
 class AdminAuditSummaryItem(BaseModel):

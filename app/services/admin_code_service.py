@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import secrets
 import string
@@ -16,7 +15,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from loguru import logger
-from sqlalchemy.orm import Session
 
 from app.db import getDb
 from app.errors import ApiError

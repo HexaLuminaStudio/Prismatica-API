@@ -1,4 +1,3 @@
-# coding: utf-8
 """Admin cookie session 工具(2026-08-05 M2 B1)
 
 策略:
@@ -20,9 +19,9 @@ import hashlib
 import hmac
 import json
 import time
-from typing import Any, Optional
+from typing import Any
 
-from flask import Response, make_response
+from flask import Response
 
 from app.config import getSettings
 
@@ -57,7 +56,7 @@ def makeSessionValue(userId: str, username: str) -> str:
     return f"{_b64urlEncode(raw)}.{sig}"
 
 
-def verifySessionValue(value: str) -> Optional[dict[str, Any]]:
+def verifySessionValue(value: str) -> dict[str, Any] | None:
     """校验 cookie value → 返回 payload dict(失败返回 None)。"""
     if not value or "." not in value:
         return None
@@ -100,7 +99,7 @@ def clearSessionCookie(resp: Response) -> Response:
     return resp
 
 
-def readSessionCookie() -> Optional[dict[str, Any]]:
+def readSessionCookie() -> dict[str, Any] | None:
     """从当前 flask request 读 cookie 并校验。失败返回 None。"""
     from flask import request
 

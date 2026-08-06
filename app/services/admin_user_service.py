@@ -14,7 +14,6 @@ from typing import Any
 
 from sqlalchemy import func as saFunc
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from app.db import getDb
 from app.errors import ApiError

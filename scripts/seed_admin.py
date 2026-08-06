@@ -1,4 +1,3 @@
-# coding: utf-8
 """seed_admin(2026-08-05 M2 B1)
 
 启动期种子:

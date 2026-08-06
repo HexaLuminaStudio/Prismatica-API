@@ -1,4 +1,3 @@
-# coding: utf-8
 """管理员账号(2026-08-05 M2 B1 新增)
 
 用于 PrismaticaAdmin 管理后台登录。bcrypt(stretch=12)哈希密码。

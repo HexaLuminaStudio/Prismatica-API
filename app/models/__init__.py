@@ -15,7 +15,6 @@ from app.models.bill import Bill
 from app.models.license_code import LicenseCode
 from app.models.recharge_record import RechargeRecord
 from app.models.refresh_token import RefreshToken
-from app.models.user_account import UserAccount, UserBalance, UserDevice
 from app.models.user import (
     ActivationCode,
     InviteCode,
@@ -23,6 +22,7 @@ from app.models.user import (
     TrialCode,
     UserTier,
 )
+from app.models.user_account import UserAccount, UserBalance, UserDevice
 
 __all__ = [
     "AdminUser",

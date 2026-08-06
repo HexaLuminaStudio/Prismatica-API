@@ -32,8 +32,9 @@ def _ok(label: str, resp: requests.Response) -> dict:
 
 def makeInvite() -> str:
     """本地用同一 LICENSE_SECRET 签发一份邀请码(与客户端 signed_code 同款)。"""
-    from app.config import getSettings
     from app.models.license_models import InviteCode, UserTier
+
+    from app.config import getSettings
     from app.security import hmac as hmacUtil
 
     getSettings()
