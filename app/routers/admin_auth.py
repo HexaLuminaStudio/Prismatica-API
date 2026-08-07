@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from app.db import getDb
 from app.deps import getClientIp, requireAdminCookie
 from app.errors import ApiError, successEnvelope
+from app.health import buildHealthPayload
 from app.middleware.admin_session import clearSessionCookie, setSessionCookie
 from app.models import AdminUser
 from app.schemas.admin import (
@@ -128,7 +129,8 @@ def postChangePassword():
 @bp.get("/health")
 def adminHealth():
     """管理后台健康检查(无需鉴权)。"""
-    return successEnvelope({"status": "ok", "scope": "admin"})
+    payload, code = buildHealthPayload()
+    return successEnvelope(payload, httpStatus=code)
 
 
 __all__ = ["bp"]

@@ -42,10 +42,15 @@ def client(app):
 
 def test_admin_health_no_auth_needed(client):
     resp = client.get("/v1/admin/health")
-    assert resp.status_code == 200
+    assert resp.status_code in (200, 503)
     body = resp.get_json()
     assert body["code"] == "OK"
-    assert body["data"]["scope"] == "admin"
+    payload = body["data"]
+    assert payload["service"] == "prismatica-backend"
+    assert payload["version"] == "2026.08.07-p0b"
+    assert payload["build"] == "local"
+    assert payload["commit"] == "unknown"
+    assert payload["db"] in ("up", "down")
 
 
 # ---------------------------------------------------------------------------

@@ -34,6 +34,9 @@ class Settings(BaseSettings):
 
     # ---- 应用 ----
     appName: str = Field(default="prismatica-backend", alias="APP_NAME")
+    appVersion: str = Field(default="2026.08.07-p0b", alias="APP_VERSION")
+    buildId: str = Field(default="local", alias="BUILD_ID")
+    gitCommit: str = Field(default="unknown", alias="GIT_COMMIT")
     env: str = Field(default="dev", alias="ENV")
     debug: bool = Field(default=False, alias="DEBUG")
     host: str = Field(default="0.0.0.0", alias="HOST")

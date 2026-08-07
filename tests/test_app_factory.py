@@ -27,6 +27,10 @@ def test_healthz_returns_200(app):
     payload = data["data"]
     assert "status" in payload
     assert "db" in payload
+    assert payload["service"] == "prismatica-backend"
+    assert payload["version"] == "2026.08.07-p0b"
+    assert payload["build"] == "local"
+    assert payload["commit"] == "unknown"
 
 
 def test_openapi_includes_v1_routes(app):

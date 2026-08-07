@@ -5,23 +5,15 @@ from flask import Blueprint, Response, current_app, jsonify
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.config import getSettings
-from app.db import pingDb
 from app.errors import successEnvelope
+from app.health import buildHealthPayload
 
 bp = Blueprint("public", __name__)
 
 
 @bp.get("/healthz")
 def healthz():
-    settings = getSettings()
-    dbOk = pingDb()
-    payload = {
-        "status": "ok" if dbOk else "degraded",
-        "service": settings.appName,
-        "env": settings.env,
-        "db": "up" if dbOk else "down",
-    }
-    code = 200 if dbOk else 503
+    payload, code = buildHealthPayload()
     return successEnvelope(payload, httpStatus=code)
 
 
