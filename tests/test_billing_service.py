@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import create_engine, select
@@ -161,7 +160,7 @@ def testSettle_FullSettleConsumesAndReleasesReserve(db: Session) -> None:
     preauthResp = preauth(db, user.id, "kwic_search", 1000)
     db.commit()
     estimated = preauthResp.estimatedCost
-    expectedBalanceAfter = 500 - estimated  # 全额结算不退还
+    500 - estimated  # 全额结算不退还
     settle(db, preauthResp.billId, realCost=estimated)
     db.commit()
 
@@ -173,7 +172,7 @@ def testSettle_FullSettleConsumesAndReleasesReserve(db: Session) -> None:
     ledgers = db.execute(
         select(BalanceLedger).where(BalanceLedger.userId == user.id)
     ).scalars().all()
-    assert {l.entryType for l in ledgers} == {"reserve", "consume"}
+    assert {ledger.entryType for ledger in ledgers} == {"reserve", "consume"}
 
 
 def testSettle_PartialSettleRefundsDifference(db: Session) -> None:
@@ -189,7 +188,7 @@ def testSettle_PartialSettleRefundsDifference(db: Session) -> None:
     ledgers = db.execute(
         select(BalanceLedger).where(BalanceLedger.userId == user.id)
     ).scalars().all()
-    assert {l.entryType for l in ledgers} == {"reserve", "unreserve", "consume"}
+    assert {ledger.entryType for ledger in ledgers} == {"reserve", "unreserve", "consume"}
 
 
 def testSettle_RealCostOutOfRangeRaises(db: Session) -> None:
@@ -242,7 +241,7 @@ def testRefund_ReturnsAllBalanceAndReleasesReserve(db: Session) -> None:
     ledgers = db.execute(
         select(BalanceLedger).where(BalanceLedger.userId == user.id)
     ).scalars().all()
-    assert {l.entryType for l in ledgers} == {"reserve", "refund"}
+    assert {ledger.entryType for ledger in ledgers} == {"reserve", "refund"}
 
 
 def testRefund_AlreadySettledRaises(db: Session) -> None:

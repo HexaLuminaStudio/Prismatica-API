@@ -15,8 +15,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from functools import wraps
-from typing import Any, Callable
+from typing import Any
 
 from flask import Flask, g, request
 from loguru import logger

@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from app.models.stored_refresh_token import StoredRefreshToken
 
-
 # 直接把 RefreshToken 暴露为 StoredRefreshToken 的 alias。这样
 # `db.get(RefreshToken, ...)` / `select(RefreshToken)` 都走 StoredRefreshToken 的 mapper。
 # 注意:别名类的字段与原类不同(老代码用 tokenId / userId 是 str,新代码用

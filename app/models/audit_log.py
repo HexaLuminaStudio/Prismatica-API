@@ -12,7 +12,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
 
-
 # 2026-08-07:audit_id 在 sqlite 测试环境用 Integer 走 autoincrement;
 # 生产 MySQL 8 仍走 BIGINT(BigInteger().with_variant(Integer, "sqlite"))。
 _AUDIT_ID = BigInteger().with_variant(Integer, "sqlite")

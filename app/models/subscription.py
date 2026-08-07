@@ -32,7 +32,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
 
-
 BIGINT_ID = BigInteger().with_variant(Integer, "sqlite")
 
 

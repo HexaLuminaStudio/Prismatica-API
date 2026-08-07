@@ -25,7 +25,6 @@ if str(ROOT) not in sys.path:
 from loguru import logger  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 
-from app.db import getDb  # noqa: E402
 from app.models.bill import Bill  # noqa: E402
 from app.services.billing_service import refund as billingRefund  # noqa: E402
 

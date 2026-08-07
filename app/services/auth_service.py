@@ -101,6 +101,7 @@ def _ensureDevice(
     这里改为按 deviceId 字段查重以保持 upsert 语义。
     """
     from sqlalchemy import select
+
     from app.models.identity import IdentityDevice as _IdentityDevice
 
     device = db.execute(
@@ -488,7 +489,9 @@ def redeemCode(
     # userId 字段查(SQLAlchemy 2.x 友好);M6 升级后这里的 userId 字段会被
     # 删除,统一走 BIGINT id。
     from sqlalchemy import select
-    from app.models.identity import IdentityDevice, User as IdentityUser
+
+    from app.models.identity import IdentityDevice
+    from app.models.identity import User as IdentityUser
 
     device = db.execute(
         select(IdentityDevice).where(IdentityDevice.deviceId == deviceId)
@@ -576,12 +579,12 @@ def redeemCode(
         # 2026-08-07(M6):INV / RCH / TRY 路径额外创建 P0-A subscription 行 +
         # 写 balance_ledger,以便 P0-A 前端能查询 /v1/account/subscriptions。
         if kind in {"invite", "trial", "recharge"}:
+            from app.models.code_redemption import CodeRedemption
             from app.services.subscription_service import (
                 redeemInviteCode,
                 redeemRechargeCode,
                 redeemTrialCode,
             )
-            from app.models.code_redemption import CodeRedemption
 
             # 2026-08-07:license_codes 当前主键是 code_hash(String),
             # CodeRedemption.code_hash FK 直接用它;M6 升级 license_codes 后切到 id。

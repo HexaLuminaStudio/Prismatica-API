@@ -20,6 +20,8 @@ from app.models.identity import (
     IdentityBalance,
     IdentityDevice,
     PasswordResetToken,
+)
+from app.models.identity import (
     User as IdentityUser,
 )
 from app.models.license_code import LicenseCode

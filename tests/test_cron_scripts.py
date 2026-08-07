@@ -6,12 +6,12 @@
 """
 from __future__ import annotations
 
+import sys
+import uuid as _uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-import sys
-import uuid as _uuid
 
 import pytest
 from sqlalchemy import create_engine, select
@@ -19,9 +19,9 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
 from app.models.bill import Bill
-from app.models.identity import User as IdentityUser, IdentityBalance
-from app.services.subscription_service import createSubscription, PLAN_PRO_MONTHLY
-
+from app.models.identity import IdentityBalance
+from app.models.identity import User as IdentityUser
+from app.services.subscription_service import PLAN_PRO_MONTHLY, createSubscription
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -137,8 +137,8 @@ def test_cron_subscriptions_expires_past(dbCtx) -> None:
 
 
 def test_cron_preauth_release_refunds_old_pending(dbCtx) -> None:
-    from scripts.cron_preauth_release import runOnce
     from app.services.billing_service import preauth
+    from scripts.cron_preauth_release import runOnce
 
     user = _makeUser(dbCtx["factory"], balance=200)
     factory = dbCtx["factory"]

@@ -5,33 +5,37 @@ from contextlib import contextmanager
 from datetime import datetime
 
 from flask import Blueprint, g, request
-from sqlalchemy import select
 from pydantic import ValidationError
+from sqlalchemy import select
 
 from app.db import getDb
 from app.deps import requireAuth, requireUser
 from app.errors import ApiError, successEnvelope
 from app.middleware.audit_log import auditAction
 from app.models import Bill, Subscription
-from app.models.identity import IdentityBalance, User
 from app.schemas.account import (
     DeleteAccountRequest,
     DeleteAccountResponse,
     DeviceListResponse,
-    MeOut,
     MePatchRequest,
     MePatchResponse,
     SubscriptionListResponse,
     SubscriptionOut,
 )
-from app.schemas.user import BillListResponse, BillOut, CurrentAccountOut
+from app.schemas.user import BillListResponse, BillOut
 from app.services.account_service import (
     deleteAccount as accountDeleteAccount,
-    listDevices as accountListDevices,
-    patchMe as accountPatchMe,
-    revokeDevice as accountRevokeDevice,
 )
 from app.services.account_service import getMe as accountGetMe
+from app.services.account_service import (
+    listDevices as accountListDevices,
+)
+from app.services.account_service import (
+    patchMe as accountPatchMe,
+)
+from app.services.account_service import (
+    revokeDevice as accountRevokeDevice,
+)
 
 bp = Blueprint("account", __name__, url_prefix="/v1/account")
 

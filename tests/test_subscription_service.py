@@ -17,7 +17,6 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
 from app.models.balance_ledger import BalanceLedger
-from app.models.code_redemption import CodeRedemption
 from app.models.identity import User as IdentityUser
 from app.models.subscription import Subscription
 from app.services.subscription_service import (
@@ -25,8 +24,8 @@ from app.services.subscription_service import (
     PLAN_TRIAL,
     createSubscription,
     expireSubscription,
-    grantMonthlyQuota,
     getActiveSubscription,
+    grantMonthlyQuota,
     listSubscriptions,
     redeemInviteCode,
     redeemRechargeCode,
@@ -141,7 +140,7 @@ def testGrantMonthlyQuota_AppendsLedgerAndKeepsBalance(db: Session) -> None:
     ).scalars().all()
     # 1 + 1 = 2
     assert len(ledgers) == 2
-    assert all(int(l.amount) == 200 for l in ledgers)
+    assert all(int(ledger.amount) == 200 for ledger in ledgers)
 
 
 # ---------------------------------------------------------------------------

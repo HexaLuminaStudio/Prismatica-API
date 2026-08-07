@@ -11,8 +11,8 @@ IdentityUser / IdentityDevice / IdentityBalance,以避免:
 """
 from __future__ import annotations
 
-from app.models.identity import IdentityBalance, IdentityDevice, User as IdentityUser
-
+from app.models.identity import IdentityBalance, IdentityDevice
+from app.models.identity import User as IdentityUser
 
 UserAccount = IdentityUser
 UserDevice = IdentityDevice

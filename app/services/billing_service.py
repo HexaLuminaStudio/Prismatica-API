@@ -34,7 +34,7 @@ from app.errors import ApiError
 from app.models.balance_ledger import BalanceLedger
 from app.models.bill import Bill
 from app.models.idempotency_key import IdempotencyKey
-from app.models.identity import IdentityBalance, User as IdentityUser
+from app.models.identity import IdentityBalance
 from app.schemas.billing import (
     CostPreview,
     PreauthResponse,

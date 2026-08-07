@@ -8,8 +8,8 @@
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
-from typing import Iterable
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -18,6 +18,8 @@ from app.errors import ApiError
 from app.models.identity import (
     IdentityBalance,
     IdentityDevice,
+)
+from app.models.identity import (
     User as IdentityUser,
 )
 from app.models.subscription import Subscription

@@ -19,7 +19,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
 from app.errors import ApiError
-from app.models.identity import IdentityBalance, IdentityDevice, User as IdentityUser
+from app.models.identity import IdentityBalance, IdentityDevice
+from app.models.identity import User as IdentityUser
 from app.security.password import hashPassword
 from app.services import account_service
 from app.services.account_service import (
@@ -30,7 +31,6 @@ from app.services.account_service import (
     patchMe,
     revokeDevice,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -190,7 +190,7 @@ def testPatchMe_InactiveUserRaisesForbidden(db: Session) -> None:
 
 def testListDevices_ActiveAndRevokedCounts(db: Session) -> None:
     user = _makeUser(db, "8")
-    d1 = _makeDevice(db, user, "device-aaa")
+    _makeDevice(db, user, "device-aaa")
     _makeDevice(db, user, "device-bbb")
     d3 = _makeDevice(db, user, "device-ccc")
     d3.status = "revoked"

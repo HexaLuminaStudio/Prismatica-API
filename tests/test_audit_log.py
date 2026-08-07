@@ -18,7 +18,6 @@ from app.config import getSettings
 from app.db import Base
 from app.middleware.audit_log import (
     auditAction,
-    getClientIp,
     installAuditContext,
     recordAudit,
 )
@@ -86,7 +85,6 @@ def testRecordAudit_DoesNotRaiseOnDbError(db, monkeypatch) -> None:
 def testAuditAction_DecoratorWritesOnSuccess(monkeypatch) -> None:
     """装饰器形式的 audit:在视图成功返回时写一条 audit_log。"""
     # 用一个最小化的 Flask app + sqlite 走装饰器
-    from app.db import getDb
 
     engine = create_engine("sqlite://", future=True, connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine)

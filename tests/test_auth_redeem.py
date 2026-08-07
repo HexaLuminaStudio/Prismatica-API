@@ -14,15 +14,14 @@ import uuid
 from datetime import datetime, timedelta
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import LicenseCode, UserAccount, UserBalance, UserDevice
+from app.models import LicenseCode, UserAccount, UserBalance
 from app.models.identity import IdentityDevice
 from app.security import hmac as hmacUtil
 from app.services.auth_service import redeemCode
-from sqlalchemy import select
 
 
 @pytest.fixture()

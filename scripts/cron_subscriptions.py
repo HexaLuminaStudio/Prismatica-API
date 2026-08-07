@@ -26,10 +26,8 @@ if str(ROOT) not in sys.path:
 from loguru import logger  # noqa: E402
 
 from app.config import getSettings  # noqa: E402
-from app.db import getDb  # noqa: E402
 from app.services.subscription_service import (  # noqa: E402
     expireSubscription,
-    getActiveSubscription,
     getDueForRenewal,
     getExpiredCandidates,
     grantMonthlyQuota,
@@ -48,7 +46,7 @@ def _advancePeriod(sub, now: datetime) -> datetime:
 
 def runOnce(*, dryRun: bool = False) -> dict:
     """执行一次完整 cron 任务,返回统计 dict。"""
-    settings = getSettings()
+    getSettings()
     stats = {
         "expiring": 0,  # 派发了新一期
         "expired": 0,    # 彻底过期
