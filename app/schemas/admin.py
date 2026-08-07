@@ -233,13 +233,13 @@ class AdminRevokeSessionsResponse(BaseModel):
 class AdminIssueCodesRequest(BaseModel):
     """POST /v1/admin/codes 请求体。"""
 
-    kind: str = Field(..., description="invite / trial / recharge")
+    kind: str = Field(default="gift", description="gift(历史 invite/trial/recharge 兼容)")
     count: int = Field(..., ge=1, le=1000)
     grantedBalance: int = Field(default=100, ge=0)
     grantedDays: int = Field(default=30, ge=1)
     tier: str = Field(default="pro")
-    amount: int = Field(default=0, ge=0, description="仅 recharge 码使用")
-    expireDays: int = Field(default=14, ge=1)
+    expireDays: int = Field(default=30, ge=1)
+    note: str = Field(default="", max_length=200)
 
 
 class AdminIssuedCodeItem(BaseModel):

@@ -52,8 +52,8 @@ def postIssueCodes():
         grantedBalance=payload.grantedBalance,
         grantedDays=payload.grantedDays,
         tier=payload.tier,
-        amount=payload.amount,
         expireDays=payload.expireDays,
+        note=payload.note,
         issuedBy=_actor(),
     )
     data = AdminIssueCodesResponse(
