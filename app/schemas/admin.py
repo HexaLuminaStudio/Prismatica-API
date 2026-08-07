@@ -58,6 +58,7 @@ class AdminUserListItem(BaseModel):
     """GET /v1/admin/users 单条。"""
 
     userId: str
+    email: str | None = None
     displayName: str
     tier: str
     status: str
@@ -65,6 +66,10 @@ class AdminUserListItem(BaseModel):
     totalSpent: int
     totalRecharged: int
     activatedAt: datetime
+    registeredAt: datetime | None = None
+    lastSeenAt: datetime | None = None
+    deviceCount: int = 0
+    deletedAt: datetime | None = None
 
 
 class AdminUserListResponse(BaseModel):
@@ -78,6 +83,7 @@ class AdminUserDetail(BaseModel):
     """GET /v1/admin/users/{userId} 响应 data。"""
 
     userId: str
+    email: str | None = None
     displayName: str
     tier: str
     status: str
@@ -85,25 +91,115 @@ class AdminUserDetail(BaseModel):
     frozenBalance: int
     totalSpent: int
     totalRecharged: int
+    lifetimeGrant: int = 0
+    lifetimeConsumed: int = 0
     activatedAt: datetime
+    registeredAt: datetime | None = None
     expireAt: datetime | None = None
     lastSeenAt: datetime | None = None
     deviceCount: int = 0
+    deletedAt: datetime | None = None
+
+
+class AdminCreateUserRequest(BaseModel):
+    """POST /v1/admin/users 请求体。"""
+
+    email: str = Field(..., min_length=3, max_length=254)
+    password: str = Field(..., min_length=10, max_length=256)
+    displayName: str = Field(default="", max_length=64)
+    tier: str = Field(default="free")
+    status: str = Field(default="active")
+
+
+class AdminCreateUserResponse(AdminUserDetail):
+    """POST /v1/admin/users 响应 data。"""
 
 
 class AdminUpdateUserRequest(BaseModel):
     """PATCH /v1/admin/users/{userId} 请求体。"""
 
-    tier: str = Field(..., description="free / pro / team")
-    status: str | None = Field(
-        default=None, description="active / paused / banned / deleted(可选)"
-    )
+    tier: str | None = Field(default=None, description="free / pro / team / guest / trial / beta / beta_pro / paid")
+    status: str | None = Field(default=None, description="active / paused / banned / deleted(可选)")
+    email: str | None = Field(default=None, min_length=3, max_length=254)
+    displayName: str | None = Field(default=None, max_length=64)
 
 
 class AdminUpdateUserResponse(BaseModel):
     userId: str
-    tier: str
+    tier: str | None = None
+    status: str | None = None
+    email: str | None = None
+    displayName: str | None = None
+
+
+class AdminResetUserPasswordResponse(BaseModel):
+    userId: str
+    newPassword: str
+
+
+class AdminDeleteUserResponse(BaseModel):
+    userId: str
+    deletedAt: datetime
+
+
+class AdminBatchUsersRequest(BaseModel):
+    action: str = Field(..., description="update_status / reset_password / delete")
+    userIds: list[str] = Field(..., min_length=1, max_length=200)
+    status: str | None = Field(default=None)
+
+
+class AdminBatchUsersResponse(BaseModel):
+    action: str
+    successCount: int
+    failedCount: int
+    items: list[dict[str, Any]]
+
+
+class AdminUserSubscriptionItem(BaseModel):
+    subscriptionId: str
+    planCode: str
     status: str
+    startedAt: datetime
+    currentPeriodStart: datetime
+    currentPeriodEnd: datetime
+    monthlyQuota: int
+    autoRenew: bool
+
+
+class AdminUserSubscriptionsResponse(BaseModel):
+    items: list[AdminUserSubscriptionItem]
+
+
+class AdminUserDeviceItem(BaseModel):
+    deviceId: str
+    deviceName: str
+    platform: str
+    status: str
+    lastSeenAt: datetime
+    createdAt: datetime
+
+
+class AdminUserDevicesResponse(BaseModel):
+    items: list[AdminUserDeviceItem]
+
+
+class AdminRevokeUserDeviceResponse(BaseModel):
+    deviceId: str
+    status: str
+
+
+class AdminUserLedgerItem(BaseModel):
+    ledgerId: str
+    type: str
+    amount: int
+    source: str
+    refId: str | None = None
+    note: str
+    createdAt: datetime
+
+
+class AdminUserLedgerResponse(BaseModel):
+    items: list[AdminUserLedgerItem]
 
 
 class AdminGrantBalanceRequest(BaseModel):
@@ -359,8 +455,21 @@ __all__ = [
     "AdminUserListItem",
     "AdminUserListResponse",
     "AdminUserDetail",
+    "AdminCreateUserRequest",
+    "AdminCreateUserResponse",
     "AdminUpdateUserRequest",
     "AdminUpdateUserResponse",
+    "AdminResetUserPasswordResponse",
+    "AdminDeleteUserResponse",
+    "AdminBatchUsersRequest",
+    "AdminBatchUsersResponse",
+    "AdminUserSubscriptionItem",
+    "AdminUserSubscriptionsResponse",
+    "AdminUserDeviceItem",
+    "AdminUserDevicesResponse",
+    "AdminRevokeUserDeviceResponse",
+    "AdminUserLedgerItem",
+    "AdminUserLedgerResponse",
     "AdminGrantBalanceRequest",
     "AdminGrantBalanceResponse",
     "AdminRevokeSessionsRequest",

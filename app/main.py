@@ -26,6 +26,10 @@ limiter = Limiter(
     key_func=get_remote_address,
     default_limits=[],
     storage_uri=getSettings().rateLimitStorageUri,
+    # Redis 只用于跨 worker 共享限流计数,不能成为业务接口的单点故障。
+    # 存储不可达时自动退回进程内计数；若回退也异常则放行请求并记录告警。
+    in_memory_fallback_enabled=True,
+    swallow_errors=True,
 )
 
 
