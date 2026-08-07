@@ -9,8 +9,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import Bill, LicenseCode, UserAccount, UserBalance
-from app.services import admin_bill_service, admin_export_service
+from app.models import Bill, CodeRedemption, LicenseCode, UserAccount, UserBalance
+from app.services import admin_audit_service, admin_bill_service, admin_export_service
 
 
 @pytest.fixture()
@@ -29,6 +29,7 @@ def db(monkeypatch):
             session.rollback()
             raise
 
+    monkeypatch.setattr(admin_audit_service, "getDb", fakeGetDb)
     monkeypatch.setattr(admin_bill_service, "getDb", fakeGetDb)
     monkeypatch.setattr(admin_export_service, "getDb", fakeGetDb)
     try:
@@ -92,3 +93,79 @@ def testAdminBillAndExportsUseCanonicalModelFields(db) -> None:
     billsCsv = admin_export_service.exportBills(limit=5)
     assert billsCsv[0]["userId"] == str(user.id)
     assert billsCsv[0]["displayName"] == "runtime-user"
+
+
+def testAdminMetricsDashboardDataUsesCanonicalModelFields(db) -> None:
+    proUser = UserAccount(
+        email="metrics-pro@example.com",
+        passwordHash="not-used",
+        displayName="metrics-pro",
+        tier="pro",
+        status="active",
+    )
+    freeUser = UserAccount(
+        email="metrics-free@example.com",
+        passwordHash="not-used",
+        displayName="metrics-free",
+        tier="free",
+        status="paused",
+    )
+    db.add_all([proUser, freeUser])
+    db.flush()
+    activeCode = LicenseCode(
+        codeHash="c" * 64,
+        codeKind="INV",
+        status="active",
+        planCode="pro",
+        periodMonths=1,
+        monthlyQuota=100,
+        maxUses=1,
+        usedCount=0,
+        issuedAt=datetime.utcnow(),
+        expiresAt=datetime.utcnow() + timedelta(days=30),
+    )
+    revokedCode = LicenseCode(
+        codeHash="d" * 64,
+        codeKind="TRY",
+        status="revoked",
+        trialDays=7,
+        monthlyQuota=20,
+        maxUses=1,
+        usedCount=0,
+        issuedAt=datetime.utcnow(),
+        revokedAt=datetime.utcnow(),
+        expiresAt=datetime.utcnow() + timedelta(days=7),
+    )
+    exhaustedCode = LicenseCode(
+        codeHash="e" * 64,
+        codeKind="RCH",
+        status="exhausted",
+        amount=50,
+        maxUses=1,
+        usedCount=1,
+        issuedAt=datetime.utcnow(),
+        expiresAt=datetime.utcnow() + timedelta(days=30),
+    )
+    db.add_all([activeCode, revokedCode, exhaustedCode])
+    db.flush()
+    db.add(
+        CodeRedemption(
+            codeId=exhaustedCode.id,
+            userId=proUser.id,
+            amountGranted=50,
+            redeemedAt=datetime.utcnow(),
+        )
+    )
+    db.commit()
+
+    distribution = admin_audit_service.subscriptionDistribution()
+    kpi = admin_audit_service.codesKpi()
+
+    assert distribution["total"] == 2
+    assert {item["tier"]: item["count"] for item in distribution["items"]} == {"pro": 1, "free": 1}
+    assert kpi == {
+        "activeCount": 1,
+        "consumedLast7Days": 1,
+        "issuedLast7Days": 3,
+        "revokedLast7Days": 1,
+    }

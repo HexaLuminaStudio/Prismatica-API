@@ -18,7 +18,15 @@ from sqlalchemy import select
 
 from app.db import getDb
 from app.errors import ApiError
-from app.models import AuditLog, BalanceLedger, Bill, LicenseCode, UserAccount, UserDevice
+from app.models import (
+    AuditLog,
+    BalanceLedger,
+    Bill,
+    CodeRedemption,
+    LicenseCode,
+    UserAccount,
+    UserDevice,
+)
 from app.security.hmac import hashCode
 
 # ---------------------------------------------------------------------------
@@ -291,6 +299,60 @@ def metricsSummary() -> dict[str, Any]:
     }
 
 
+def subscriptionDistribution() -> dict[str, Any]:
+    """按用户 tier 统计订阅分布。"""
+    with getDb() as db:
+        rows = db.execute(
+            select(UserAccount.tier, saFunc.count(UserAccount.id))
+            .group_by(UserAccount.tier)
+            .order_by(saFunc.count(UserAccount.id).desc(), UserAccount.tier.asc())
+        ).all()
+
+    items = [{"tier": str(tier), "count": int(count)} for tier, count in rows]
+    total = int(sum(item["count"] for item in items))
+    return {"items": items, "total": total}
+
+
+def codesKpi() -> dict[str, Any]:
+    """兑换码 KPI:有效码、近 7 日签发/使用/撤销数量。"""
+    since = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=7)
+    with getDb() as db:
+        activeCount = int(
+            db.execute(
+                select(saFunc.count()).select_from(LicenseCode).where(LicenseCode.status == "active")
+            ).scalar_one()
+            or 0
+        )
+        consumedLast7Days = int(
+            db.execute(
+                select(saFunc.count()).select_from(CodeRedemption).where(CodeRedemption.redeemedAt >= since)
+            ).scalar_one()
+            or 0
+        )
+        issuedLast7Days = int(
+            db.execute(
+                select(saFunc.count()).select_from(LicenseCode).where(LicenseCode.issuedAt >= since)
+            ).scalar_one()
+            or 0
+        )
+        revokedLast7Days = int(
+            db.execute(
+                select(saFunc.count()).select_from(LicenseCode).where(
+                    LicenseCode.status == "revoked",
+                    LicenseCode.revokedAt >= since,
+                )
+            ).scalar_one()
+            or 0
+        )
+
+    return {
+        "activeCount": activeCount,
+        "consumedLast7Days": consumedLast7Days,
+        "issuedLast7Days": issuedLast7Days,
+        "revokedLast7Days": revokedLast7Days,
+    }
+
+
 __all__ = [
     "recordAudit",
     "listAudit",
@@ -299,4 +361,6 @@ __all__ = [
     "lookupCode",
     "revokeCode",
     "metricsSummary",
+    "subscriptionDistribution",
+    "codesKpi",
 ]

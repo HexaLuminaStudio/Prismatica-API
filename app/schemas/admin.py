@@ -349,6 +349,29 @@ class AdminMetricsSummary(BaseModel):
     billsRefundedLast7Days: int
 
 
+class AdminSubscriptionDistributionItem(BaseModel):
+    """GET /v1/admin/metrics/subscription-distribution 单条。"""
+
+    tier: str
+    count: int
+
+
+class AdminSubscriptionDistributionResponse(BaseModel):
+    """GET /v1/admin/metrics/subscription-distribution 响应 data。"""
+
+    items: list[AdminSubscriptionDistributionItem]
+    total: int
+
+
+class AdminCodesKpi(BaseModel):
+    """GET /v1/admin/metrics/codes-kpi 响应 data。"""
+
+    activeCount: int
+    consumedLast7Days: int
+    issuedLast7Days: int
+    revokedLast7Days: int
+
+
 # ===========================================================================
 # bills — 账单管理(2026-08-06 新增)
 # ===========================================================================
@@ -489,6 +512,9 @@ __all__ = [
     "AdminAuditSummaryResponse",
     # metrics
     "AdminMetricsSummary",
+    "AdminSubscriptionDistributionItem",
+    "AdminSubscriptionDistributionResponse",
+    "AdminCodesKpi",
     # bills (2026-08-06 新增)
     "AdminBillListItem",
     "AdminBillListResponse",
