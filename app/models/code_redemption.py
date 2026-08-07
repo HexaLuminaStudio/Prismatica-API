@@ -29,11 +29,11 @@ class CodeRedemption(Base):
     __tablename__ = "code_redemptions"
 
     id: Mapped[int] = mapped_column(BIGINT_ID, primary_key=True, autoincrement=True)
-    # 2026-08-07:license_codes 当前的主键是 code_hash(String(64)),
-    # 与 schema.sql 的 BIGINT id 主键不完全一致;这里直接引用 code_hash,
-    # 等 M6 兑换码升级(license_codes 重构为 BIGINT id)时再切到 id FK。
-    codeHash: Mapped[str] = mapped_column(
-        "code_hash", String(64), ForeignKey("license_codes.code_hash", ondelete="RESTRICT"), nullable=False
+    codeId: Mapped[int] = mapped_column(
+        "code_id",
+        BIGINT_ID,
+        ForeignKey("license_codes.id", ondelete="RESTRICT"),
+        nullable=False,
     )
     userId: Mapped[int] = mapped_column(
         "user_id", BIGINT_ID, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
@@ -48,7 +48,7 @@ class CodeRedemption(Base):
     )
 
     __table_args__ = (
-        Index("uk_code_redemptions_code_user", "code_hash", "user_id", unique=True),
+        Index("uk_code_redemptions_code_user", "code_id", "user_id", unique=True),
         Index("idx_code_redemptions_user_time", "user_id", "redeemed_at"),
     )
 

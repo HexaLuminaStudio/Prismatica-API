@@ -14,7 +14,11 @@ class LicenseCode(Base):
 
     __tablename__ = "license_codes"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    )
     codeHash: Mapped[str] = mapped_column("code_hash", String(64), nullable=False, unique=True)
     codeKind: Mapped[str] = mapped_column("code_kind", String(8), nullable=False)
     status: Mapped[str] = mapped_column("status", String(16), nullable=False, default="active")

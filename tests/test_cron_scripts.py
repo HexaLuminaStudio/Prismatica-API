@@ -144,7 +144,7 @@ def test_cron_preauth_release_refunds_old_pending(dbCtx) -> None:
     factory = dbCtx["factory"]
     with factory() as s:
         preauthResp = preauth(s, user.id, "kwic_search", 1000)
-        bill = s.get(Bill, preauthResp.billId)
+        bill = s.execute(select(Bill).where(Bill.billId == preauthResp.billId)).scalar_one()
         bill.createdAt = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=10)
         s.commit()
 
@@ -152,5 +152,5 @@ def test_cron_preauth_release_refunds_old_pending(dbCtx) -> None:
     assert stats["released"] >= 1
 
     with factory() as s:
-        bill = s.get(Bill, preauthResp.billId)
+        bill = s.execute(select(Bill).where(Bill.billId == preauthResp.billId)).scalar_one()
         assert bill.status == "refunded"

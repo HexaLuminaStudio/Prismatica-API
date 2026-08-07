@@ -341,15 +341,16 @@ def redeemInviteCode(
         db.add(sub)
         db.flush()
 
-        _grantQuotaInternal(
-            db,
-            userId,
-            amount=grantedBalance,
-            source="invite_grant",
-            refType="code",
-            refId=str(codeId),
-            note=f"INV 码兑换(grantedDays={grantedDays})",
-        )
+        if grantedBalance > 0:
+            _grantQuotaInternal(
+                db,
+                userId,
+                amount=grantedBalance,
+                source="invite_grant",
+                refType="code",
+                refId=str(codeId),
+                note=f"INV 码兑换(grantedDays={grantedDays})",
+            )
         return sub, grantedBalance
 
     # grantedDays == 0:仅 grant 余额,不创建订阅
@@ -391,15 +392,16 @@ def redeemTrialCode(
     )
     db.add(sub)
     db.flush()
-    _grantQuotaInternal(
-        db,
-        userId,
-        amount=grantedBalance,
-        source="trial_grant",
-        refType="code",
-        refId=str(codeId),
-        note=f"TRY 码兑换(days={days})",
-    )
+    if grantedBalance > 0:
+        _grantQuotaInternal(
+            db,
+            userId,
+            amount=grantedBalance,
+            source="trial_grant",
+            refType="code",
+            refId=str(codeId),
+            note=f"TRY 码兑换(days={days})",
+        )
     return sub
 
 

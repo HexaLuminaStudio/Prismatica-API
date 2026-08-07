@@ -17,7 +17,7 @@ from app.db import getDb
 from app.errors import ApiError
 from app.models import Bill, UserAccount
 
-_VALID_STATUS = {"pending", "settled", "refunded"}
+_VALID_STATUS = {"pending", "settled", "refunded", "expired"}
 
 
 def _parseCursor(cursor: str | None) -> datetime | None:
@@ -33,17 +33,17 @@ def _toItem(row: Bill, displayName: str | None) -> dict[str, Any]:
     """把 Bill ORM 行转为字典(与 schema AdminBillListItem 对齐)。"""
     return {
         "billId": row.billId,
-        "userId": row.userId,
+        "userId": str(row.userId),
         "displayName": displayName,
-        "actionType": row.actionType,
-        "actionDisplayName": row.actionDisplayName,
+        "actionType": row.feature,
+        "actionDisplayName": row.feature,
         "estimatedCost": int(row.estimatedCost or 0),
-        "realCost": int(row.realCost or 0),
-        "resourceUsed": int(row.resourceUsed or 0),
-        "balanceBefore": int(row.balanceBefore or 0),
-        "balanceAfter": int(row.balanceAfter or 0),
+        "realCost": int(row.actualCost or 0),
+        "resourceUsed": 0,
+        "balanceBefore": 0,
+        "balanceAfter": 0,
         "status": row.status,
-        "taskId": row.taskId,
+        "taskId": "",
         "description": row.description,
         "idempotencyKey": row.idempotencyKey,
         "createdAt": row.createdAt,
@@ -72,7 +72,7 @@ def listBills(
     with getDb() as db:
         stmt = (
             select(Bill, UserAccount.displayName)
-            .outerjoin(UserAccount, UserAccount.userId == Bill.userId)
+            .outerjoin(UserAccount, UserAccount.id == Bill.userId)
             .order_by(Bill.createdAt.desc())
         )
         cursorDt = _parseCursor(cursor)
@@ -81,7 +81,11 @@ def listBills(
         if status:
             stmt = stmt.where(Bill.status == status)
         if userId:
-            stmt = stmt.where(Bill.userId == userId)
+            try:
+                numericUserId = int(userId)
+            except ValueError as error:
+                raise ApiError("BAD_REQUEST", "userId 必须为数字") from error
+            stmt = stmt.where(Bill.userId == numericUserId)
         if days:
             since = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=int(days))
             stmt = stmt.where(Bill.createdAt >= since)
@@ -100,7 +104,7 @@ def listBills(
 def getBillDetail(billId: str) -> dict[str, Any]:
     """账单详情(含用户 displayName)。"""
     with getDb() as db:
-        row = db.get(Bill, billId)
+        row = db.execute(select(Bill).where(Bill.billId == billId)).scalar_one_or_none()
         if row is None:
             raise ApiError("NOT_FOUND", "账单不存在")
         user = db.get(UserAccount, row.userId)

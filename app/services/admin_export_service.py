@@ -26,22 +26,22 @@ def exportUsers(limit: int = 5000) -> list[dict[str, Any]]:
     with getDb() as db:
         stmt = (
             select(UserAccount, UserBalance)
-            .outerjoin(UserBalance, UserBalance.userId == UserAccount.userId)
+            .outerjoin(UserBalance, UserBalance.userId == UserAccount.id)
             .order_by(UserAccount.createdAt.desc())
             .limit(limit)
         )
         rows = db.execute(stmt).all()
         return [
             {
-                "userId": a.userId,
+                "userId": str(a.id),
                 "displayName": a.displayName,
                 "tier": a.tier,
                 "status": a.status,
                 "balance": int(b.balance or 0) if b else 0,
                 "totalRecharged": int(b.totalRecharged or 0) if b else 0,
                 "totalSpent": int(b.totalSpent or 0) if b else 0,
-                "activatedAt": _iso(a.activatedAt),
-                "expireAt": _iso(a.expireAt),
+                "activatedAt": _iso(a.createdAt),
+                "expireAt": "",
                 "createdAt": _iso(a.createdAt),
             }
             for a, b in rows
@@ -93,25 +93,32 @@ def exportCodes(
     with getDb() as db:
         stmt = select(LicenseCode).order_by(LicenseCode.issuedAt.desc()).limit(limit)
         if kind:
-            stmt = stmt.where(LicenseCode.codeKind == kind)
+            kindMap = {"invite": "INV", "trial": "TRY", "recharge": "RCH"}
+            stmt = stmt.where(LicenseCode.codeKind == kindMap.get(kind, kind))
         if status:
             stmt = stmt.where(LicenseCode.status == status)
         rows = db.execute(stmt).scalars().all()
         return [
             {
                 "codeHash": r.codeHash,
-                "codeKind": r.codeKind,
+                "codeKind": {"INV": "invite", "TRY": "trial", "RCH": "recharge"}.get(
+                    r.codeKind, r.codeKind
+                ),
                 "status": r.status,
-                "grantedBalance": r.grantedBalance if r.grantedBalance is not None else "",
-                "grantedDays": r.grantedDays if r.grantedDays is not None else "",
-                "tier": r.tier or "",
+                "grantedBalance": r.monthlyQuota if r.monthlyQuota is not None else "",
+                "grantedDays": (
+                    r.trialDays
+                    if r.codeKind == "TRY"
+                    else (r.periodMonths * 30 if r.periodMonths is not None else "")
+                ),
+                "tier": r.planCode or ("pro" if r.codeKind == "TRY" else ""),
                 "amount": r.amount if r.amount is not None else "",
                 "issuedBy": r.issuedBy,
                 "issuedAt": _iso(r.issuedAt),
-                "expireAt": _iso(r.expireAt),
-                "consumedAt": _iso(r.consumedAt),
-                "consumedByUserId": r.consumedByUserId or "",
-                "consumedIp": r.consumedIp or "",
+                "expireAt": _iso(r.expiresAt),
+                "consumedAt": "",
+                "consumedByUserId": "",
+                "consumedIp": "",
             }
             for r in rows
         ]
@@ -128,14 +135,20 @@ def exportBills(
     with getDb() as db:
         stmt = (
             select(Bill, UserAccount.displayName)
-            .outerjoin(UserAccount, UserAccount.userId == Bill.userId)
+            .outerjoin(UserAccount, UserAccount.id == Bill.userId)
             .order_by(Bill.createdAt.desc())
             .limit(limit)
         )
         if status:
             stmt = stmt.where(Bill.status == status)
         if userId:
-            stmt = stmt.where(Bill.userId == userId)
+            try:
+                numericUserId = int(userId)
+            except ValueError as error:
+                from app.errors import ApiError
+
+                raise ApiError("BAD_REQUEST", "userId 必须为数字") from error
+            stmt = stmt.where(Bill.userId == numericUserId)
         if days:
             since = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=int(days))
             stmt = stmt.where(Bill.createdAt >= since)
@@ -143,17 +156,17 @@ def exportBills(
         return [
             {
                 "billId": r.billId,
-                "userId": r.userId,
+                "userId": str(r.userId),
                 "displayName": displayName or "",
-                "actionType": r.actionType,
-                "actionDisplayName": r.actionDisplayName,
+                "actionType": r.feature,
+                "actionDisplayName": r.feature,
                 "estimatedCost": int(r.estimatedCost or 0),
-                "realCost": int(r.realCost or 0),
-                "resourceUsed": int(r.resourceUsed or 0),
-                "balanceBefore": int(r.balanceBefore or 0),
-                "balanceAfter": int(r.balanceAfter or 0),
+                "realCost": int(r.actualCost or 0),
+                "resourceUsed": 0,
+                "balanceBefore": 0,
+                "balanceAfter": 0,
                 "status": r.status,
-                "taskId": r.taskId,
+                "taskId": "",
                 "description": r.description,
                 "idempotencyKey": r.idempotencyKey or "",
                 "createdAt": _iso(r.createdAt),

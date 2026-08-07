@@ -99,10 +99,10 @@ def testPreauth_DeductsBalanceAndReservesAndWritesLedger(db: Session) -> None:
     assert ledgers[0].refId == result.billId
 
     # bill 存在
-    bill = db.get(Bill, result.billId)
+    bill = db.execute(select(Bill).where(Bill.billId == result.billId)).scalar_one()
     assert bill is not None
     assert bill.status == "pending"
-    assert bill.idempotencyKey is None
+    assert bill.idempotencyKey.startswith("auto:")
 
 
 def testPreauth_InsufficientBalanceRaises(db: Session) -> None:
@@ -164,9 +164,9 @@ def testSettle_FullSettleConsumesAndReleasesReserve(db: Session) -> None:
     settle(db, preauthResp.billId, realCost=estimated)
     db.commit()
 
-    bill = db.get(Bill, preauthResp.billId)
+    bill = db.execute(select(Bill).where(Bill.billId == preauthResp.billId)).scalar_one()
     assert bill.status == "settled"
-    assert bill.realCost == estimated
+    assert bill.actualCost == estimated
 
     # ledger 应该:1 reserve + 1 consume
     ledgers = db.execute(
@@ -226,7 +226,7 @@ def testRefund_ReturnsAllBalanceAndReleasesReserve(db: Session) -> None:
     refund(db, preauthResp.billId)
     db.commit()
 
-    bill = db.get(Bill, preauthResp.billId)
+    bill = db.execute(select(Bill).where(Bill.billId == preauthResp.billId)).scalar_one()
     assert bill.status == "refunded"
     # 用户余额应该恢复到 500
     from app.models.identity import IdentityBalance

@@ -94,9 +94,9 @@ class AdminUserDetail(BaseModel):
 class AdminUpdateUserRequest(BaseModel):
     """PATCH /v1/admin/users/{userId} 请求体。"""
 
-    tier: str = Field(..., description="guest / trial / beta / beta_pro / paid")
+    tier: str = Field(..., description="free / pro / team")
     status: str | None = Field(
-        default=None, description="active / suspended / expired(可选)"
+        default=None, description="active / paused / banned / deleted(可选)"
     )
 
 
@@ -141,7 +141,7 @@ class AdminIssueCodesRequest(BaseModel):
     count: int = Field(..., ge=1, le=1000)
     grantedBalance: int = Field(default=100, ge=0)
     grantedDays: int = Field(default=30, ge=1)
-    tier: str = Field(default="beta")
+    tier: str = Field(default="pro")
     amount: int = Field(default=0, ge=0, description="仅 recharge 码使用")
     expireDays: int = Field(default=14, ge=1)
 

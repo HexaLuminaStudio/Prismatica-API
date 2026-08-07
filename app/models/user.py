@@ -17,6 +17,9 @@ from pydantic import BaseModel, Field
 class UserTier(StrEnum):
     """用户档位枚举。"""
 
+    FREE = "free"
+    PRO = "pro"
+    TEAM = "team"
     GUEST = "guest"
     TRIAL = "trial"
     BETA = "beta"

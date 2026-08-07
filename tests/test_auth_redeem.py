@@ -4,13 +4,12 @@
     - 同码二次兑换 → 同一 userId 且余额不重复发放(幂等恢复)
     - 同设备换新码 → 同一 userId、余额合并
     - 激活码兑换 → 建用户、expireAt = validityPeriod 当日 23:59:59、不发余额
-    - 新用户 userId 为合法 UUID(v4) 格式
+    - 新用户 userId 为 BIGINT 主键
 """
 from __future__ import annotations
 
 import base64
 import json
-import uuid
 from datetime import datetime, timedelta
 
 import pytest
@@ -18,7 +17,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import LicenseCode, UserAccount, UserBalance
+from app.models import CodeRedemption, LicenseCode, UserAccount, UserBalance
 from app.models.identity import IdentityDevice
 from app.security import hmac as hmacUtil
 from app.services.auth_service import redeemCode
@@ -89,27 +88,32 @@ def _activationCode(validityDays: int = 90, userType: str = "正式用户") -> s
 # ---------------------------------------------------------------------------
 
 
-def test_redeem_new_code_creates_uuid4_user(db):
-    """全新设备 + 全新凭证 → 新建用户,userId 为合法 UUID v4。"""
+def test_redeem_new_code_creates_bigint_user(db):
+    """全新设备 + 全新凭证 → 新建 BIGINT 用户。"""
     code = _inviteCode()
     r = redeemCode(
         db, code, "00000000-0000-0000-0000-000000000001",
         deviceName="pc", platform="win",
     )
     assert r.mode == "invite"
-    parsed = uuid.UUID(r.user.userId)
-    assert parsed.version == 4
+    assert r.user.userId.isdecimal()
     assert r.balance.balance == 100
     # 设备已绑定(P0-A IdentityDevice 主键是 BIGINT id,按 deviceId 字段查)
     device = db.execute(
         select(IdentityDevice).where(IdentityDevice.deviceId == "00000000-0000-0000-0000-000000000001")
     ).scalar_one_or_none()
     assert device is not None
-    assert device.userId == r.user.userId
+    assert device.userId == int(r.user.userId)
     # 幂等表已消费
-    seen = db.get(LicenseCode, hmacUtil.hashCode(code))
+    seen = db.execute(
+        select(LicenseCode).where(LicenseCode.codeHash == hmacUtil.hashCode("INV-TEST-0001-0001"))
+    ).scalar_one()
     assert seen is not None
-    assert seen.consumedByUserId == r.user.userId
+    assert seen.status == "exhausted"
+    redemption = db.execute(
+        select(CodeRedemption).where(CodeRedemption.codeId == seen.id)
+    ).scalar_one()
+    assert redemption.userId == int(r.user.userId)
 
 
 def test_same_code_second_redeem_restores_identity_no_double_grant(db):
@@ -124,9 +128,11 @@ def test_same_code_second_redeem_restores_identity_no_double_grant(db):
     assert r2.user.userId == r1.user.userId  # 跨设备恢复同一身份
     assert r2.balance.balance == 100  # 已消费 → 跳过赠予
     # 幂等表消费记录未改变
-    seen = db.get(LicenseCode, hmacUtil.hashCode(code))
-    assert seen.consumedByUserId == r1.user.userId
-    assert seen.consumedAt is not None
+    seen = db.execute(
+        select(LicenseCode).where(LicenseCode.codeHash == hmacUtil.hashCode("INV-TEST-0001-0001"))
+    ).scalar_one()
+    assert seen.status == "exhausted"
+    assert seen.usedCount == 1
 
 
 def test_same_device_new_code_keeps_user_and_merges_balance(db):
@@ -149,7 +155,7 @@ def test_same_device_new_code_keeps_user_and_merges_balance(db):
     assert balance is not None
     assert balance.balance == 200
     user = db.execute(
-        select(UserAccount).where(UserAccount.userId == r1.user.userId)
+        select(UserAccount).where(UserAccount.id == int(r1.user.userId))
     ).scalar_one_or_none()
     assert user is not None
 
@@ -161,7 +167,7 @@ def test_activation_code_sets_expire_at_from_validity(db):
 
     r = redeemCode(db, code, deviceId)
     assert r.mode == "activation"
-    assert r.user.tier == "paid"  # 「正式用户」→ paid
+    assert r.user.tier == "pro"  # 存量档位收敛到 canonical tier
     # expireAt 取码有效期当日 23:59:59
     validity = (datetime.utcnow() + timedelta(days=90)).strftime("%Y-%m-%d")
     expected = datetime.strptime(validity, "%Y-%m-%d").replace(
@@ -191,22 +197,8 @@ def test_activation_code_second_redeem_idempotent(db):
 
 
 @pytest.fixture()
-def db_with_getdb(db, monkeypatch):
-    """把 app.db.getDb() 桩到当前测试 Session,让 _decodeRawCode 能查到 license_codes。"""
-    from contextlib import contextmanager
-
-    import app.services.auth_service as authSvc
-
-    @contextmanager
-    def _fakeGetDb():
-        try:
-            yield db
-            db.commit()
-        except Exception:
-            db.rollback()
-            raise
-
-    monkeypatch.setattr(authSvc, "getDb", _fakeGetDb)
+def db_with_getdb(db):
+    """明文码与兑换逻辑共用同一事务会话。"""
     return db
 
 
@@ -215,17 +207,16 @@ def test_plaintext_invite_code_redemption(db_with_getdb):
 
     # 1) admin 签发(等价 AdminCodeService.issueCodes):写 license_codes + 生成 signedPayload
     plainCode = "INV-PLAIN-AAAA-BBBB-CCCC"
-    signedPayload = _inviteCode(code=plainCode)
     row = LicenseCode(
         codeHash=hmacUtil.hashCode(plainCode),
-        codeKind="invite",
+        codeKind="INV",
         status="active",
-        grantedBalance=100,
-        grantedDays=30,
-        tier="beta",
-        issuedBy="admin-test",
-        expireAt=datetime.utcnow() + timedelta(days=30),
-        rawCodeSignature=signedPayload,
+        planCode="pro",
+        periodMonths=1,
+        monthlyQuota=100,
+        maxUses=1,
+        usedCount=0,
+        expiresAt=datetime.utcnow() + timedelta(days=30),
     )
     db_with_getdb.add(row)
     db_with_getdb.commit()
@@ -236,11 +227,12 @@ def test_plaintext_invite_code_redemption(db_with_getdb):
 
     assert r.mode == "invite"
     assert r.balance.balance == 100
-    assert r.user.tier == "beta"
+    assert r.user.tier == "pro"
     # 幂等表已消费
-    seen = db_with_getdb.get(LicenseCode, hmacUtil.hashCode(plainCode))
-    assert seen.status == "consumed"
-    assert seen.consumedByUserId == r.user.userId
+    seen = db_with_getdb.execute(
+        select(LicenseCode).where(LicenseCode.codeHash == hmacUtil.hashCode(plainCode))
+    ).scalar_one()
+    assert seen.status == "exhausted"
 
 
 def test_plaintext_code_not_in_db_rejected(db_with_getdb):
@@ -254,21 +246,19 @@ def test_plaintext_code_not_in_db_rejected(db_with_getdb):
     assert ei.value.code == "INVALID_CODE"
 
 
-def test_plaintext_code_no_signature_still_succeeds(db_with_getdb):
-    """license_codes 里有记录但 rawCodeSignature 缺失(2026-08-06 降级):
-    明文码路径不再依赖 raw_code_signature,只要元数据完整就允许兑换。
-    """
+def test_plaintext_code_uses_database_metadata(db_with_getdb):
+    """明文码只依赖 canonical license_codes 元数据。"""
     plainCode = "INV-NOSIG-AAAA-BBBB-CCCC"
     row = LicenseCode(
         codeHash=hmacUtil.hashCode(plainCode),
-        codeKind="invite",
+        codeKind="INV",
         status="active",
-        grantedBalance=100,
-        grantedDays=30,
-        tier="beta",
-        issuedBy="admin-test",
-        expireAt=datetime.utcnow() + timedelta(days=30),
-        rawCodeSignature=None,  # 关键:无 signed payload — 降级后必须仍然成功
+        planCode="pro",
+        periodMonths=1,
+        monthlyQuota=100,
+        maxUses=1,
+        usedCount=0,
+        expiresAt=datetime.utcnow() + timedelta(days=30),
     )
     db_with_getdb.add(row)
     db_with_getdb.commit()
@@ -279,24 +269,19 @@ def test_plaintext_code_no_signature_still_succeeds(db_with_getdb):
     assert r.balance.balance == 100
 
 
-def test_plaintext_code_corrupt_signature_still_succeeds(db_with_getdb):
-    """license_codes 里 rawCodeSignature 损坏/截断 → 降级路径必须仍然成功。
-
-    旧行为:decodeSignedCode 抛 binascii.Error: Incorrect padding → INVALID_CODE
-    新行为:忽略 raw_code_signature,只用表元数据构造 payload。
-    """
+def test_plaintext_code_kind_mapping_succeeds(db_with_getdb):
+    """canonical INV 类型可还原为公开 invite 语义。"""
     plainCode = "INV-CORRUPT-AAAA-BBBB"
     row = LicenseCode(
         codeHash=hmacUtil.hashCode(plainCode),
-        codeKind="invite",
+        codeKind="INV",
         status="active",
-        grantedBalance=100,
-        grantedDays=30,
-        tier="beta",
-        issuedBy="admin-test",
-        expireAt=datetime.utcnow() + timedelta(days=30),
-        # 故意写一个非法 base64 — 旧路径下会抛 Incorrect padding
-        rawCodeSignature="not-valid-base64-payload",
+        planCode="pro",
+        periodMonths=1,
+        monthlyQuota=100,
+        maxUses=1,
+        usedCount=0,
+        expiresAt=datetime.utcnow() + timedelta(days=30),
     )
     db_with_getdb.add(row)
     db_with_getdb.commit()
@@ -314,14 +299,14 @@ def test_plaintext_code_missing_expire_rejected(db_with_getdb):
     plainCode = "INV-NOEXP-AAAA-BBBB-CCCC"
     row = LicenseCode(
         codeHash=hmacUtil.hashCode(plainCode),
-        codeKind="invite",
+        codeKind="INV",
         status="active",
-        grantedBalance=100,
-        grantedDays=30,
-        tier="beta",
-        issuedBy="admin-test",
-        expireAt=None,  # 关键:元数据缺失
-        rawCodeSignature="valid-or-not-irrelevant",
+        planCode="pro",
+        periodMonths=1,
+        monthlyQuota=100,
+        maxUses=1,
+        usedCount=0,
+        expiresAt=None,  # 关键:元数据缺失
     )
     db_with_getdb.add(row)
     db_with_getdb.commit()

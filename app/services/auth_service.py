@@ -1,369 +1,326 @@
-"""认证服务:redeem / refresh / logout。
+"""兑换码认证服务。
 
-按 PRD v2 §3 实现:
-    - redeem:验签 + 幂等 + 创建 user / balance / device / refresh_token,下发 JWT
-    - refresh:校验 refresh_token,重发 access + 滚动 refresh(返回相同结构)
-    - logout:revoke 当前 refresh_token(可选 revoke device 所有 token)
+兑换入口与邮箱密码登录共用 P0-A 的 BIGINT 用户、设备、余额和刷新令牌模型。
+支持签名载荷以及后台签发后展示给用户的明文 INV/TRY/RCH 码。
 """
 from __future__ import annotations
 
+import math
 import secrets
-import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from loguru import logger
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import getSettings
-from app.db import getDb
 from app.errors import ApiError
-from app.models import (
-    LicenseCode,
-    RechargeRecord,
-    RefreshToken,
-    UserAccount,
-    UserBalance,
-    UserDevice,
-)
-from app.models.user import (
-    ActivationCode,
-    InviteCode,
-    RechargeCode,
-    TrialCode,
-    UserTier,
-)
-from app.schemas.auth import (
-    BalanceOut,
-    RedeemResponse,
-    TokensOut,
-    UserOut,
-)
+from app.models import CodeRedemption, LicenseCode, Subscription
+from app.models.identity import IdentityBalance, IdentityDevice, User
+from app.models.user import ActivationCode, InviteCode, RechargeCode, TrialCode
+from app.schemas.auth import BalanceOut, RedeemResponse, TokensOut, UserOut
 from app.security import hmac as hmacUtil
-from app.security.jwt import encodeAccessToken
+from app.security.jwt import createAccessToken
+from app.security.password import hashPassword
+from app.services.identity_auth_service import logoutUser, refreshUserTokens
+from app.services.subscription_service import (
+    redeemInviteCode,
+    redeemRechargeCode,
+    redeemTrialCode,
+)
+from app.services.token_service import issueRefreshToken
 
 _settings = getSettings()
 
-
-# ---------------------------------------------------------------------------
-# 工具
-# ---------------------------------------------------------------------------
+_DISPLAY_KIND = {"INV": "invite", "TRY": "trial", "RCH": "recharge"}
+_STORAGE_KIND = {value: key for key, value in _DISPLAY_KIND.items()}
 
 
-def _newUserId() -> str:
-    return str(uuid.uuid4())
+def _now() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
-def _toNaive(dt: datetime) -> datetime:
-    """统一为 naive UTC(与 MySQL TIMESTAMP 比较)。"""
-    if dt.tzinfo is not None:
-        return dt.astimezone(UTC).replace(tzinfo=None)
-    return dt
+def _toNaive(value: datetime) -> datetime:
+    if value.tzinfo is not None:
+        return value.astimezone(UTC).replace(tzinfo=None)
+    return value
 
 
-# 存量激活码 userType 为中文标签,映射为 UserTier 枚举值
-_ACTIVATION_TIER_MAP = {
-    "正式用户": UserTier.PAID.value,
-    "正式版": UserTier.PAID.value,
-    "pro": UserTier.PAID.value,
-    "paid": UserTier.PAID.value,
-    "普通用户": UserTier.BETA.value,
-    "内测用户": UserTier.BETA.value,
-    "beta": UserTier.BETA.value,
-    "trial": UserTier.TRIAL.value,
-}
+def _canonicalTier(value: str | None) -> str:
+    """把存量兑换码档位收敛到 users 表允许的 free/pro/team。"""
+    normalized = (value or "").strip().lower()
+    if normalized == "team":
+        return "team"
+    if normalized in {"pro", "paid", "beta", "beta_pro", "trial", "正式用户", "正式版", "普通用户", "内测用户"}:
+        return "pro"
+    return "free"
 
 
-def _mapActivationTier(userType: str) -> str:
-    """将存量激活码的中文 userType 映射为 UserTier 值。"""
-    if not userType:
-        return UserTier.BETA.value
-    mapped = _ACTIVATION_TIER_MAP.get(str(userType).strip().lower())
-    if mapped:
-        return mapped
+def _findLicense(db: Session, codeHash: str, *, lock: bool = False) -> LicenseCode | None:
+    stmt = select(LicenseCode).where(LicenseCode.codeHash == codeHash)
+    if lock:
+        stmt = stmt.with_for_update()
+    return db.execute(stmt).scalar_one_or_none()
+
+
+def _decodeRawCode(rawCode: str, db: Session) -> dict:
+    """解码签名载荷，或从 license_codes 反查明文码元数据。"""
     try:
-        return UserTier(userType).value
-    except ValueError:
-        return UserTier.BETA.value
+        return hmacUtil.decodeSignedCode(rawCode)
+    except (TypeError, ValueError):
+        pass
+
+    codeBody = (rawCode or "").strip()
+    if not any(codeBody.startswith(prefix) for prefix in ("INV-", "TRY-", "RCH-")):
+        raise ApiError("INVALID_CODE", "码无效或已损坏: 凭证格式错误")
+
+    row = _findLicense(db, hmacUtil.hashCode(codeBody))
+    if row is None:
+        raise ApiError("INVALID_CODE", "码无效或已损坏: 未找到凭证或凭证已下线")
+    if row.expiresAt is None:
+        raise ApiError("INVALID_CODE", "码无效或已损坏: 凭证缺失有效期")
+
+    payload: dict = {
+        "code": codeBody,
+        "issuedAt": (row.issuedAt or _now()).isoformat(),
+        "expireAt": row.expiresAt.isoformat(),
+        "version": 1,
+    }
+    if row.codeKind == "INV":
+        payload.update(
+            {
+                "maxUses": row.maxUses,
+                "grantedBalance": int(row.monthlyQuota or 0),
+                "grantedDays": int(row.periodMonths or 0) * 30,
+                "tier": row.planCode or "pro",
+            }
+        )
+    elif row.codeKind == "TRY":
+        payload.update(
+            {
+                "maxUses": row.maxUses,
+                "grantedBalance": int(row.monthlyQuota or 0),
+                "grantedDays": int(row.trialDays or 0),
+                "tier": "pro",
+            }
+        )
+    elif row.codeKind == "RCH":
+        payload.update({"amount": int(row.amount or 0), "note": row.note})
+    else:
+        raise ApiError("INVALID_CODE", "码无效或已损坏: 未知凭证类型")
+    return payload
 
 
-def _genRefreshTokenId() -> str:
-    # 表 token_id CHAR(36),用 token_hex(16) → 32 hex 字符(预留 4 字符)
-    return secrets.token_hex(16)
+def _parseAndVerify(rawCode: str, db: Session):
+    data = _decodeRawCode(rawCode, db)
+    signature = data.get("signature")
+    unsigned = {key: value for key, value in data.items() if key != "signature"}
+    if signature:
+        if not hmacUtil.verifyPayload(unsigned, signature):
+            raise ApiError("INVALID_CODE", "凭证签名校验失败")
+    elif not any((rawCode or "").strip().startswith(prefix) for prefix in ("INV-", "TRY-", "RCH-")):
+        raise ApiError("INVALID_CODE", "凭证格式错误")
+
+    codeBody = str(data.get("code") or "")
+    prefix = codeBody.split("-", 1)[0] if codeBody else ""
+    try:
+        if prefix == "INV":
+            return "invite", InviteCode.model_validate(unsigned)
+        if prefix == "TRY":
+            return "trial", TrialCode.model_validate(unsigned)
+        if prefix == "RCH":
+            return "recharge", RechargeCode.model_validate(unsigned)
+        if not codeBody and (data.get("validityPeriod") or data.get("deviceCode")):
+            return "activation", ActivationCode.model_validate(unsigned)
+    except Exception as error:
+        raise ApiError("INVALID_CODE", f"凭证字段不合法: {error}") from error
+
+    if not codeBody:
+        raise ApiError("INVALID_CODE", "凭证缺少 code 字段")
+    raise ApiError("INVALID_CODE", f"未知凭证类型: {prefix}")
 
 
-def _ensureDevice(
-    db: Session, userId: str, deviceId: str, deviceName: str, platform: str
-) -> None:
-    """upsert device(若不存在则创建)。
+def _codeExpiry(kind: str, model) -> datetime:
+    if kind != "activation":
+        return _toNaive(model.expireAt)
+    validity = getattr(model, "validityPeriod", None)
+    if not validity:
+        raise ApiError("INVALID_CODE", "激活码缺少有效期")
+    try:
+        return datetime.strptime(validity, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+    except ValueError as error:
+        raise ApiError("INVALID_CODE", "激活码有效期字段不合法") from error
 
-    2026-08-07:UserDevice alias 到 IdentityDevice,主键是 BIGINT id,
-    这里改为按 deviceId 字段查重以保持 upsert 语义。
-    """
-    from sqlalchemy import select
 
-    from app.models.identity import IdentityDevice as _IdentityDevice
+def _codeHash(rawCode: str, model) -> str:
+    codeBody = getattr(model, "code", None)
+    return hmacUtil.hashCode(codeBody or rawCode)
 
-    device = db.execute(
-        select(_IdentityDevice).where(_IdentityDevice.deviceId == deviceId)
+
+def _findPublicDevice(db: Session, deviceId: str) -> IdentityDevice | None:
+    return db.execute(
+        select(IdentityDevice)
+        .where(IdentityDevice.deviceId == deviceId, IdentityDevice.status == "active")
+        .order_by(IdentityDevice.id)
+        .limit(1)
     ).scalar_one_or_none()
+
+
+def _upsertDevice(
+    db: Session,
+    userId: int,
+    deviceId: str,
+    deviceName: str,
+    platform: str,
+) -> IdentityDevice:
+    device = db.execute(
+        select(IdentityDevice).where(
+            IdentityDevice.userId == userId,
+            IdentityDevice.deviceId == deviceId,
+        )
+    ).scalar_one_or_none()
+    now = _now()
     if device is None:
-        device = UserDevice(
-            deviceId=deviceId,
+        device = IdentityDevice(
             userId=userId,
+            deviceId=deviceId,
             deviceName=deviceName or "",
             platform=platform or "",
+            status="active",
+            firstSeenAt=now,
+            lastSeenAt=now,
         )
         db.add(device)
+        db.flush()
     else:
-        device.userId = userId
-        if deviceName:
-            device.deviceName = deviceName
-        if platform:
-            device.platform = platform
-    db.flush()
+        device.deviceName = deviceName or device.deviceName
+        device.platform = platform or device.platform
+        device.status = "active"
+        device.revokedAt = None
+        device.lastSeenAt = now
+    return device
 
 
-def _ensureBalance(db: Session, userId: str) -> UserBalance:
-    """确保 user_balances 行存在(余额为 0)。"""
-    balance = db.get(UserBalance, userId)
+def _ensureBalance(db: Session, userId: int) -> IdentityBalance:
+    balance = db.get(IdentityBalance, userId)
     if balance is None:
-        balance = UserBalance(userId=userId)
+        balance = IdentityBalance(userId=userId)
         db.add(balance)
         db.flush()
     return balance
 
 
-def _writeRechargeRecord(
-    db: Session,
-    userId: str,
-    amount: int,
-    source: str,
-    balanceBefore: int,
-    balanceAfter: int,
-    codeHash: str | None = None,
-    operatorNote: str = "",
-) -> RechargeRecord:
-    record = RechargeRecord(
-        recordId=str(uuid.uuid4()),
-        userId=userId,
-        amount=amount,
-        source=source,
-        codeHash=codeHash,
-        operatorNote=operatorNote,
-        balanceBefore=balanceBefore,
-        balanceAfter=balanceAfter,
+def _createRedeemUser(db: Session, displayName: str, tier: str) -> User:
+    user = User(
+        email=f"redeem-{secrets.token_hex(16)}@local.invalid",
+        passwordHash=hashPassword(f"Redeem-2026-{secrets.token_urlsafe(32)}"),
+        displayName=(displayName or "内测用户").strip(),
+        tier=tier,
+        status="active",
     )
-    db.add(record)
+    db.add(user)
     db.flush()
-    return record
+    db.add(IdentityBalance(userId=user.id))
+    db.flush()
+    return user
 
 
-def _buildRedeemResponse(
+def _createLicense(
     db: Session,
-    user: UserAccount,
-    balance: UserBalance,
-    deviceId: str,
-    tier: str,
-    refreshTokenId: str,
+    codeHash: str,
+    kind: str,
+    model,
+    expiresAt: datetime,
+) -> LicenseCode:
+    storageKind = "INV" if kind == "activation" else _STORAGE_KIND[kind]
+    grantedDays = (
+        max(0, int((expiresAt - _now()).total_seconds() // 86400))
+        if kind == "activation"
+        else int(getattr(model, "grantedDays", 0) or 0)
+    )
+    grantedBalance = int(getattr(model, "grantedBalance", 0) or 0)
+    tier = _canonicalTier(
+        getattr(model, "userType", None) if kind == "activation" else str(getattr(model, "tier", ""))
+    )
+    row = LicenseCode(
+        codeHash=codeHash,
+        codeKind=storageKind,
+        status="active",
+        planCode=tier if storageKind == "INV" else None,
+        periodMonths=max(1, math.ceil(grantedDays / 30)) if storageKind == "INV" and grantedDays else None,
+        trialDays=grantedDays if storageKind == "TRY" else None,
+        monthlyQuota=grantedBalance if storageKind in {"INV", "TRY"} else None,
+        amount=int(getattr(model, "amount", 0) or 0) if storageKind == "RCH" else None,
+        maxUses=int(getattr(model, "maxUses", 1) or 1),
+        usedCount=0,
+        note="redeem import",
+        issuedAt=_toNaive(getattr(model, "issuedAt", _now())),
+        expiresAt=expiresAt,
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def _firstRedemption(db: Session, codeId: int) -> CodeRedemption | None:
+    return db.execute(
+        select(CodeRedemption)
+        .where(CodeRedemption.codeId == codeId)
+        .order_by(CodeRedemption.id)
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def _userRedemption(db: Session, codeId: int, userId: int) -> CodeRedemption | None:
+    return db.execute(
+        select(CodeRedemption).where(
+            CodeRedemption.codeId == codeId,
+            CodeRedemption.userId == userId,
+        )
+    ).scalar_one_or_none()
+
+
+def _activeExpiry(db: Session, userId: int) -> datetime | None:
+    return db.execute(
+        select(Subscription.expiresAt)
+        .where(Subscription.userId == userId, Subscription.status == "active")
+        .order_by(Subscription.expiresAt.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def _buildResponse(
+    db: Session,
+    *,
     mode: str,
+    user: User,
+    device: IdentityDevice,
 ) -> RedeemResponse:
-    accessToken, ttl = encodeAccessToken(user.userId, deviceId, tier=tier)
+    balance = _ensureBalance(db, user.id)
+    accessToken = createAccessToken(user.id, device.deviceId, user.tier)
+    refreshToken, _record = issueRefreshToken(db, user.id, device.id, device.deviceId)
+    db.flush()
     return RedeemResponse(
         mode=mode,
         user=UserOut(
-            userId=user.userId,
+            userId=str(user.id),
             displayName=user.displayName,
             tier=user.tier,
             createdAt=user.createdAt,
-            expireAt=user.expireAt,
+            expireAt=_activeExpiry(db, user.id),
         ),
         balance=BalanceOut(
-            balance=balance.balance,
-            frozenBalance=balance.frozenBalance,
-            totalSpent=balance.totalSpent,
-            totalRecharged=balance.totalRecharged,
+            balance=int(balance.balance or 0),
+            frozenBalance=int(balance.reserved or 0),
+            totalSpent=int(balance.lifetimeConsumed or 0),
+            totalRecharged=int(balance.lifetimeGrant or 0),
         ),
         tokens=TokensOut(
             accessToken=accessToken,
-            refreshToken=refreshTokenId,
-            expiresIn=ttl,
+            refreshToken=refreshToken,
+            expiresIn=_settings.jwtAccessTtlSec,
         ),
     )
-
-
-def _issueRefreshToken(
-    db: Session,
-    userId: str,
-    deviceId: str,
-) -> RefreshToken:
-    """签发 refresh_token(opaque UUID),存表。"""
-    token = RefreshToken(
-        tokenId=_genRefreshTokenId(),
-        userId=userId,
-        deviceId=deviceId,
-        expiresAt=datetime.now(UTC)
-        + timedelta(seconds=_settings.jwtRefreshTtlSec),
-    )
-    db.add(token)
-    db.flush()
-    return token
-
-
-# ---------------------------------------------------------------------------
-# 公开 API
-# ---------------------------------------------------------------------------
-
-
-def _parseAndVerify(rawCode: str):
-    """解码 + 验签 + 反序列化为 Pydantic 模型(2026-08-06 降级)。
-
-    兼容两种入参格式:
-        1. base64(json+sig) — 完整 signed payload,客户端直接 redeem
-        2. 明文 INV-/TRY-/RCH- 码 — admin 后台签发后给用户的明文形式,
-           走 license_codes 表反查元数据路径,**该路径不验签**
-           (因为明文码本身已是可信的,服务器自己用 sha256 找到了它)
-
-    Returns:
-        (kind: str, model, signature)
-    """
-    data = _decodeRawCode(rawCode)
-    signature = data.get("signature")
-    payloadWithoutSig = {k: v for k, v in data.items() if k != "signature"}
-
-    if signature:
-        # base64 signed payload 路径 — 必须通过验签
-        if not hmacUtil.verifyPayload(payloadWithoutSig, signature):
-            raise ApiError("INVALID_CODE", "凭证签名校验失败")
-    else:
-        # 明文码降级路径 — 仅允许明文码 + 表反查成功的结果无 signature
-        # 用 codeBody 形如 INV-/TRY-/RCH- 二次确认
-        raw = (rawCode or "").strip()
-        if not any(raw.startswith(p) for p in ("INV-", "TRY-", "RCH-")):
-            raise ApiError("INVALID_CODE", "凭证格式错误")
-
-    codeField = data.get("code", "")
-    prefix = codeField.split("-", 1)[0] if codeField else ""
-
-    try:
-        if prefix == "INV":
-            return "invite", InviteCode.model_validate(payloadWithoutSig)
-        if prefix == "TRY":
-            return "trial", TrialCode.model_validate(payloadWithoutSig)
-        if prefix == "RCH":
-            return "recharge", RechargeCode.model_validate(payloadWithoutSig)
-    except Exception as e:
-        raise ApiError("INVALID_CODE", f"凭证字段不合法: {e}") from e
-
-    # 存量激活码:无 code 字段,含 deviceCode / validityPeriod / userType
-    if not codeField and (data.get("validityPeriod") or data.get("deviceCode")):
-        try:
-            return "activation", ActivationCode.model_validate(payloadWithoutSig)
-        except Exception as e:
-            raise ApiError("INVALID_CODE", f"激活码字段不合法: {e}") from e
-
-    if not codeField:
-        raise ApiError("INVALID_CODE", "凭证缺少 code 字段")
-    raise ApiError("INVALID_CODE", f"未知凭证类型: {prefix}")
-
-
-def _decodeRawCode(rawCode: str) -> dict:
-    """解码 rawCode,自动兼容明文码(2026-08-06 新增;2026-08-06 降级)。
-
-    两条路径:
-        1. base64 signed payload — 客户端直接 redeem(payload 已含 code + 签名)
-        2. 明文 INV-/TRY-/RCH- 码 — admin 后台签发后给用户的明文形式;
-           通过 sha256(code) 在 license_codes 表里反查元数据,
-           直接用表里的元数据 + 明文 codeBody 构造 payload(不再二次 decodeSignedCode)
-
-    降级理由:若 license_codes.raw_code_signature 与历史旧格式不兼容,
-    直接二次 base64+JSON 解析会触发 Incorrect padding,redeem 失败;
-    改为不再依赖 raw_code_signature,只信任 license_codes 元数据列。
-    """
-    try:
-        return hmacUtil.decodeSignedCode(rawCode)
-    except ValueError:
-        # 不是 base64 signed payload,可能是 admin 给的明文码
-        pass
-
-    rawCode = (rawCode or "").strip()
-    # 仅尝试"明文 INV/TRY/RCH-XX-..."这种特征;长度阈值避免误匹配
-    if not rawCode or not any(rawCode.startswith(p) for p in ("INV-", "TRY-", "RCH-")):
-        raise ApiError(
-            "INVALID_CODE",
-            "码无效或已损坏: 凭证格式错误",
-        )
-
-    # 通过 codeHash 反查 license_codes 表的元数据,
-    # 直接用表列构造 payload,不再走 raw_code_signature。
-    from app.models import LicenseCode  # 局部导入避免循环
-
-    codeHash = hmacUtil.hashCode(rawCode)
-    with getDb() as db:
-        row = db.get(LicenseCode, codeHash)
-        if row is None:
-            raise ApiError(
-                "INVALID_CODE",
-                "码无效或已损坏: 未找到凭证或凭证已下线",
-            )
-        if row.codeKind == "activation":
-            # 存量激活码不含 codeBody 字段,走老路径(从 raw_code_signature 反查)
-            if not row.rawCodeSignature:
-                raise ApiError(
-                    "INVALID_CODE",
-                    "码无效或已损坏: 激活码凭证缺失",
-                )
-            try:
-                return hmacUtil.decodeSignedCode(row.rawCodeSignature)
-            except ValueError as e:
-                raise ApiError(
-                    "INVALID_CODE",
-                    f"码无效或已损坏: 服务端凭证异常 ({e})",
-                ) from e
-
-        # INV/TRY/RCH:用表元数据直接构造 payload
-        if row.expireAt is None:
-            raise ApiError(
-                "INVALID_CODE",
-                "码无效或已损坏: 凭证缺失有效期",
-            )
-        from app.models.user import UserTier
-
-        issuedAt = (
-            row.issuedAt
-            if row.issuedAt is not None
-            else datetime.now(UTC).replace(tzinfo=None)
-        )
-        expireAt = row.expireAt
-        payload: dict = {
-            "code": rawCode,
-            "issuedAt": issuedAt.isoformat(),
-            "expireAt": expireAt.isoformat(),
-            "version": 1,
-        }
-        if row.codeKind == "invite":
-            payload.update(
-                {
-                    "maxUses": 1,
-                    "grantedBalance": int(row.grantedBalance or 0),
-                    "grantedDays": int(row.grantedDays or 0),
-                    "tier": row.tier or UserTier.BETA.value,
-                }
-            )
-        elif row.codeKind == "trial":
-            payload.update(
-                {
-                    "maxUses": 1,
-                    "grantedBalance": int(row.grantedBalance or 0),
-                    "grantedDays": int(row.grantedDays or 0),
-                    "tier": UserTier.TRIAL.value,
-                }
-            )
-        elif row.codeKind == "recharge":
-            payload.update(
-                {"amount": int(row.amount or 0), "note": "admin issued"}
-            )
-        return payload
 
 
 def redeemCode(
@@ -375,352 +332,157 @@ def redeemCode(
     displayName: str = "内测用户",
     clientIp: str | None = None,
 ) -> RedeemResponse:
-    """统一兑换入口(自动识别 INV/TRY/RCH/ACTIVATION)。
+    """兑换 INV/TRY/RCH/存量激活码，并签发与登录接口一致的 JWT。"""
+    if not deviceId.strip():
+        raise ApiError("BAD_REQUEST", "deviceId 不能为空")
 
-    身份语义(设备绑定 + 幂等恢复):
-        - 同设备重新激活(任意新码)→ 复用该设备已绑定的 userId,赠予合并
-        - 重输已消费的同一凭证 → 复用原用户(跨设备恢复登录),不再重复赠予
-        - 全新设备 + 全新凭证 → 新建用户(正式 uuid4)
-    """
-    kind, model = _parseAndVerify(rawCode)
-    codeHash = hmacUtil.hashCode(rawCode)
-    now = datetime.now(UTC).replace(tzinfo=None)  # 与 MySQL TIMESTAMP 比较保持 naive
+    kind, model = _parseAndVerify(rawCode, db)
+    expiresAt = _codeExpiry(kind, model)
+    now = _now()
+    if expiresAt < now:
+        raise ApiError("EXPIRED", "该凭证已过期")
 
-    # ============ 充值码:严格一次性,需已绑定用户 ============
-    if kind == "recharge":
-        if not model.amount or model.amount <= 0:
-            raise ApiError("INVALID_CODE", "充值码金额无效")
-
-        existing = db.get(LicenseCode, codeHash)
-        if existing is not None and existing.status == "consumed":
-            raise ApiError("ALREADY_USED", "该充值码已被使用")
-        expireAt = _toNaive(model.expireAt)
-        if expireAt < now:
-            raise ApiError("EXPIRED", "该充值码已过期")
-
-        device = db.get(UserDevice, deviceId)
-        if device is None:
-            raise ApiError("NEED_ACTIVATION", "请先激活后再使用充值码")
-        userId = device.userId
-        user = db.get(UserAccount, userId)
-        if user is None:
-            raise ApiError("NEED_ACTIVATION", "请先激活后再使用充值码")
-
-        balance = _ensureBalance(db, userId)
-        beforeBalance = balance.balance
-        balance.balance += model.amount
-        balance.totalRecharged += model.amount
-        balance.version += 1
-        db.flush()
-        _writeRechargeRecord(
-            db,
-            userId=userId,
-            amount=model.amount,
-            source="recharge_code",
-            codeHash=codeHash,
-            balanceBefore=beforeBalance,
-            balanceAfter=balance.balance,
-            operatorNote=model.note or f"recharge {model.code}",
-        )
-
-        try:
-            if existing is None:
-                db.add(
-                    LicenseCode(
-                        codeHash=codeHash,
-                        codeKind="recharge",
-                        status="consumed",
-                        amount=model.amount,
-                        issuedBy="system",
-                        issuedAt=getattr(model, "issuedAt", now),
-                        expireAt=expireAt,
-                        consumedAt=now,
-                        consumedByUserId=userId,
-                        consumedIp=clientIp,
-                    )
-                )
-            else:
-                existing.status = "consumed"
-                existing.consumedAt = now
-                existing.consumedByUserId = userId
-                existing.consumedIp = clientIp
-            db.flush()
-        except IntegrityError:
-            db.rollback()
-            raise ApiError("ALREADY_USED", "该充值码已被使用") from None
-
-        refresh = _issueRefreshToken(db, userId, deviceId)
-        db.commit()
-
-        logger.info(
-            f"[Auth] recharge 成功 user={userId} device={deviceId[:8]}... "
-            f"+{model.amount} balance={balance.balance}"
-        )
-        return _buildRedeemResponse(
-            db, user, balance, deviceId, tier=user.tier, refreshTokenId=refresh.tokenId, mode="recharge"
-        )
-
-    # ============ 邀请 / 体验 / 激活码:设备绑定 + 幂等恢复 ============
-    existing = db.get(LicenseCode, codeHash)
-    codeConsumed = existing is not None and existing.status == "consumed"
-    consumedUserId = existing.consumedByUserId if (codeConsumed and existing is not None) else None
-
-    # 码自身有效期(激活码用 validityPeriod 日期,其余用 expireAt)
-    if kind == "activation":
-        validity = getattr(model, "validityPeriod", None)
-        codeExpire: datetime | None = None
-        if validity:
-            try:
-                codeExpire = datetime.strptime(validity, "%Y-%m-%d").replace(
-                    hour=23, minute=59, second=59
-                )
-            except ValueError:
-                raise ApiError("INVALID_CODE", "激活码有效期字段不合法") from None
-            if codeExpire < now:
-                raise ApiError("EXPIRED", "该激活码已过期")
-    else:
-        codeExpire = _toNaive(model.expireAt)
-        if codeExpire < now:
+    codeHash = _codeHash(rawCode, model)
+    licenseRow = _findLicense(db, codeHash, lock=True)
+    if licenseRow is not None:
+        if licenseRow.status == "revoked":
+            raise ApiError("INVALID_CODE", "该凭证已被撤销")
+        if licenseRow.status == "expired":
+            raise ApiError("EXPIRED", "该凭证已过期")
+        if licenseRow.expiresAt is not None and licenseRow.expiresAt < now:
+            licenseRow.status = "expired"
             raise ApiError("EXPIRED", "该凭证已过期")
 
-    # 用户解析优先级:设备绑定 > 已消费码绑定 > 新建(uuid4)
-    # 2026-08-07:UserAccount 已是 IdentityUser 的 alias,主键是 BIGINT id,
-    # 而旧 redeem 路径用 userId (String(36) UUID) 做关联。这里改为按
-    # userId 字段查(SQLAlchemy 2.x 友好);M6 升级后这里的 userId 字段会被
-    # 删除,统一走 BIGINT id。
-    from sqlalchemy import select
+    publicDevice = _findPublicDevice(db, deviceId)
+    firstRedemption = _firstRedemption(db, licenseRow.id) if licenseRow is not None else None
+    exhausted = bool(
+        licenseRow is not None
+        and (licenseRow.status == "exhausted" or licenseRow.usedCount >= licenseRow.maxUses)
+    )
 
-    from app.models.identity import IdentityDevice
-    from app.models.identity import User as IdentityUser
-
-    device = db.execute(
-        select(IdentityDevice).where(IdentityDevice.deviceId == deviceId)
-    ).scalar_one_or_none()
-    user = None
-    if device is not None:
-        user = db.execute(
-            select(IdentityUser).where(IdentityUser.userId == device.userId)
-        ).scalar_one_or_none()
-    if user is None and consumedUserId:
-        user = db.execute(
-            select(IdentityUser).where(IdentityUser.userId == consumedUserId)
-        ).scalar_one_or_none()
-    if user is None:
-        tier = (
-            _mapActivationTier(getattr(model, "userType", "正式用户"))
-            if kind == "activation"
-            else (model.tier.value if hasattr(model.tier, "value") else str(model.tier))
-        )
-        user = UserAccount(
-            userId=_newUserId(),
-            displayName=displayName or getattr(model, "code", "") or "内测用户",
-            tier=tier,
-            status="active",
-            activatedAt=now,
-            expireAt=None,
-        )
-        db.add(user)
-        db.flush()
-    elif user.status != "active":
-        raise ApiError("ALREADY_AUTHENTICATED", "账号状态异常,请先注销后再兑换")
-
-    # 2026-08-07(M6):为 P0-A 订阅表准备 BIGINT user_id 映射。
-    # 老 redeem 路径创建的用户主键是 String(36) UUID,而 subscription / balance_ledger
-    # 等 P0-A 表需要 BIGINT。这里查询或创建对应的 IdentityUser 行,把 BIGINT id
-    # 用作 subscription.userId。
-    from app.models.identity import User as IdentityUser
-    bigintUser = db.execute(
-        select(IdentityUser).where(IdentityUser.userId == user.userId)
-    ).scalar_one_or_none()
-    if bigintUser is None:
-        bigintUser = IdentityUser(
-            userId=user.userId,
-            email=None,  # 老路径无邮箱
-            passwordHash=None,  # 老路径无密码
-            displayName=user.displayName,
-            tier=user.tier or "free",
-            status="active",
-            activatedAt=now,
-        )
-        db.add(bigintUser)
-        db.flush()
-    bigintUserId = int(bigintUser.id)
-
-    # 赠予与有效期:仅当凭证尚未消费(已消费只做幂等恢复,不重复发余额)
-    balance = _ensureBalance(db, user.userId)
-    if not codeConsumed:
-        if kind == "activation":
-            grantedBalance = 0
-            grantExpire = codeExpire
-        else:
-            grantedBalance = model.grantedBalance
-            grantExpire = now + timedelta(days=model.grantedDays)
-
-        beforeBalance = balance.balance
-        if grantedBalance > 0:
-            balance.balance += grantedBalance
-            balance.totalRecharged += grantedBalance
-            balance.version += 1
-            db.flush()
-            _writeRechargeRecord(
-                db,
-                userId=user.userId,
-                amount=grantedBalance,
-                source=f"{kind}_grant",
-                balanceBefore=beforeBalance,
-                balanceAfter=balance.balance,
-                codeHash=codeHash,
-                operatorNote=f"{kind} {getattr(model, 'code', '')}",
-            )
-
-        if grantExpire is not None and (user.expireAt is None or grantExpire > user.expireAt):
-            user.expireAt = grantExpire
-
-        # 2026-08-07(M6):INV / RCH / TRY 路径额外创建 P0-A subscription 行 +
-        # 写 balance_ledger,以便 P0-A 前端能查询 /v1/account/subscriptions。
-        if kind in {"invite", "trial", "recharge"}:
-            from app.models.code_redemption import CodeRedemption
-            from app.services.subscription_service import (
-                redeemInviteCode,
-                redeemRechargeCode,
-                redeemTrialCode,
-            )
-
-            # 2026-08-07:license_codes 当前主键是 code_hash(String),
-            # CodeRedemption.code_hash FK 直接用它;M6 升级 license_codes 后切到 id。
-            # 注意:tier 升级策略不直接修改 user.tier,以保持 M3 之前
-            # redeem 测试断言(tier 仍由 _mapActivationTier 决定);
-            # 真正的 tier 升级交由 /v1/account/me 在返回时根据活跃 subscription 推断。
-            if kind == "invite":
-                redeemInviteCode(
-                    db,
-                    userId=bigintUserId,
-                    grantedBalance=grantedBalance,
-                    grantedDays=int(model.grantedDays or 0),
-                    codeId=0,
-                    clientIp=clientIp,
-                )
-            elif kind == "trial":
-                redeemTrialCode(
-                    db,
-                    userId=bigintUserId,
-                    grantedBalance=grantedBalance,
-                    grantedDays=int(model.grantedDays or 0),
-                    codeId=0,
-                )
-            elif kind == "recharge":
-                redeemRechargeCode(
-                    db,
-                    userId=bigintUserId,
-                    amount=grantedBalance,
-                    codeId=0,
-                )
-
-            # 写 code_redemptions(同事务;code_hash 是 FK 必填)
-            try:
-                db.add(
-                    CodeRedemption(
-                        codeHash=codeHash,
-                        userId=bigintUserId,
-                        amountGranted=grantedBalance,
-                        clientIp=clientIp,
-                    )
-                )
-                db.flush()
-            except IntegrityError:
-                # 已存在(code_hash + user_id 唯一) — 跳过
-                db.rollback()
-
-        # 写幂等表(2026-08-06:若 license_codes 已有 admin 预写的行(明文码路径)
-        # 则就地 UPDATE,不重复 INSERT,避免与 admin 签发的 rawCodeSignature 行主键冲突)
-        try:
-            if existing is None:
-                db.add(
-                    LicenseCode(
-                        codeHash=codeHash,
-                        codeKind=kind,
-                        status="consumed",
-                        issuedBy="system",
-                        issuedAt=getattr(model, "issuedAt", now),
-                        expireAt=codeExpire,
-                        consumedAt=now,
-                        consumedByUserId=user.userId,
-                        consumedIp=clientIp,
-                    )
-                )
-            else:
-                # 明文码路径:admin 已存 active 行,直接翻转为 consumed
-                existing.status = "consumed"
-                existing.consumedAt = now
-                existing.consumedByUserId = user.userId
-                existing.consumedIp = clientIp
-            db.flush()
-        except IntegrityError:
-            db.rollback()
-            raise ApiError("ALREADY_USED", "该凭证已被使用") from None
+    if kind == "recharge":
+        if exhausted:
+            raise ApiError("ALREADY_USED", "该充值码已被使用")
+        if publicDevice is None:
+            raise ApiError("NEED_ACTIVATION", "请先激活后再使用充值码")
+        user = db.get(User, publicDevice.userId)
+    elif firstRedemption is not None and exhausted:
+        if publicDevice is not None and publicDevice.userId != firstRedemption.userId:
+            raise ApiError("ALREADY_USED", "该凭证已绑定其他账号")
+        user = db.get(User, firstRedemption.userId)
+    elif publicDevice is not None:
+        user = db.get(User, publicDevice.userId)
     else:
-        logger.info(
-            f"[Auth] {kind} 幂等恢复 user={user.userId}(凭证已消费,跳过赠予)"
+        requestedTier = (
+            getattr(model, "userType", None)
+            if kind == "activation"
+            else str(getattr(model, "tier", "free"))
         )
+        user = _createRedeemUser(db, displayName, _canonicalTier(requestedTier))
 
-    _ensureDevice(db, user.userId, deviceId, deviceName, platform)
-    refresh = _issueRefreshToken(db, user.userId, deviceId)
+    if user is None:
+        raise ApiError("INVALID_CODE", "凭证关联的用户不存在")
+    if user.status != "active" or user.deletedAt is not None:
+        raise ApiError("ALREADY_AUTHENTICATED", "账号状态异常,无法兑换")
+
+    device = _upsertDevice(db, user.id, deviceId, deviceName, platform)
+    if licenseRow is None:
+        licenseRow = _createLicense(db, codeHash, kind, model, expiresAt)
+
+    alreadyRedeemed = _userRedemption(db, licenseRow.id, user.id)
+    shouldGrant = not exhausted and alreadyRedeemed is None
+    if shouldGrant:
+        grantedBalance = int(getattr(model, "grantedBalance", 0) or 0)
+        subscription = None
+        if kind == "recharge":
+            grantedBalance = int(model.amount)
+            redeemRechargeCode(db, user.id, grantedBalance, licenseRow.id)
+        elif kind == "trial":
+            subscription = redeemTrialCode(
+                db,
+                user.id,
+                grantedBalance,
+                int(model.grantedDays or 0),
+                licenseRow.id,
+            )
+            user.tier = "pro"
+        else:
+            grantedDays = (
+                max(1, int((expiresAt - now).total_seconds() // 86400))
+                if kind == "activation"
+                else int(model.grantedDays or 0)
+            )
+            subscription, _amount = redeemInviteCode(
+                db,
+                user.id,
+                grantedBalance,
+                grantedDays,
+                licenseRow.id,
+                clientIp,
+            )
+            if kind == "activation" and subscription is not None:
+                subscription.currentPeriodEnd = expiresAt
+                subscription.expiresAt = expiresAt
+                subscription.nextGrantAt = expiresAt
+            user.tier = _canonicalTier(
+                getattr(model, "userType", None)
+                if kind == "activation"
+                else str(getattr(model, "tier", "pro"))
+            )
+
+        db.add(
+            CodeRedemption(
+                codeId=licenseRow.id,
+                userId=user.id,
+                subscriptionId=subscription.id if subscription is not None else None,
+                amountGranted=grantedBalance,
+                clientIp=clientIp,
+            )
+        )
+        licenseRow.usedCount = int(licenseRow.usedCount or 0) + 1
+        if licenseRow.usedCount >= licenseRow.maxUses:
+            licenseRow.status = "exhausted"
+        db.flush()
+
+    response = _buildResponse(db, mode=kind, user=user, device=device)
     db.commit()
-
     logger.info(
-        f"[Auth] {kind} 激活成功 user={user.userId} device={deviceId[:8]}... "
-        f"balance={balance.balance}"
+        f"[Auth] {kind} redeem user={user.id} device={deviceId[:8]}... "
+        f"granted={shouldGrant}"
     )
-    return _buildRedeemResponse(
-        db,
-        user,
-        balance,
-        deviceId,
-        tier=user.tier,
-        refreshTokenId=refresh.tokenId,
-        mode=kind,
-    )
+    return response
 
 
 def refreshTokens(db: Session, refreshToken: str, deviceId: str) -> RedeemResponse:
-    """用 refresh_token 换新的 access + 滚动 refresh。"""
-    token = db.get(RefreshToken, refreshToken)
-    if token is None:
-        raise ApiError("REFRESH_INVALID", httpStatus=401)
-    if token.revokedAt is not None:
-        raise ApiError("REFRESH_INVALID", httpStatus=401)
-    expiresAt = token.expiresAt
-    if expiresAt.tzinfo is not None:
-        expiresAt = expiresAt.astimezone(UTC).replace(tzinfo=None)
-    if expiresAt < datetime.now(UTC).replace(tzinfo=None):
-        raise ApiError("REFRESH_EXPIRED", httpStatus=401)
-
-    user = db.get(UserAccount, token.userId)
-    if user is None:
-        raise ApiError("REFRESH_INVALID", httpStatus=401)
-    balance = _ensureBalance(db, user.userId)
-
-    # 滚动续期:revoke 老 refresh + 发新 refresh(保证旧 token 一旦泄露立即失效)
-    token.revokedAt = datetime.now(UTC).replace(tzinfo=None)
-    newRefresh = _issueRefreshToken(db, user.userId, deviceId or token.deviceId)
-    db.commit()
-
-    return _buildRedeemResponse(
-        db,
-        user,
-        balance,
-        deviceId or token.deviceId,
-        tier=user.tier,
-        refreshTokenId=newRefresh.tokenId,
+    """兼容旧服务调用方，内部使用当前 JWT refresh 轮换实现。"""
+    result = refreshUserTokens(db, refreshToken, deviceId)
+    balance = _ensureBalance(db, result.user.id)
+    return RedeemResponse(
         mode="refresh",
+        user=UserOut(
+            userId=str(result.user.id),
+            displayName=result.user.displayName,
+            tier=result.user.tier,
+            createdAt=result.user.createdAt,
+            expireAt=_activeExpiry(db, result.user.id),
+        ),
+        balance=BalanceOut(
+            balance=int(balance.balance or 0),
+            frozenBalance=int(balance.reserved or 0),
+            totalSpent=int(balance.lifetimeConsumed or 0),
+            totalRecharged=int(balance.lifetimeGrant or 0),
+        ),
+        tokens=TokensOut(
+            accessToken=result.tokens.accessToken,
+            refreshToken=result.tokens.refreshToken,
+            expiresIn=result.tokens.expiresIn,
+        ),
     )
 
 
 def revokeRefreshToken(db: Session, refreshToken: str | None) -> None:
-    """登出:撤销指定的 refresh_token;若 None 则撤销整个 device 的 token。"""
-    now = datetime.now(UTC).replace(tzinfo=None)
-    if refreshToken:
-        token = db.get(RefreshToken, refreshToken)
-        if token is not None and token.revokedAt is None:
-            token.revokedAt = now
+    logoutUser(db, refreshToken)
     db.commit()
+
+
+__all__ = ["redeemCode", "refreshTokens", "revokeRefreshToken"]

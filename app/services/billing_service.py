@@ -69,19 +69,18 @@ def _hashRequest(payload: dict[str, Any]) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
-def _userIdAsString(userId: int) -> str:
-    """IdentityBalance / IdentityUser.userId 是 String(36),但 BIGINT user_id 也可以写入。"""
-    return str(int(userId))
+def _userIdAsInt(userId: int) -> int:
+    return int(userId)
 
 
 def _ensureIdentityBalance(db: Session, userId: int) -> IdentityBalance:
     """确保 user_balance 行存在(若不存在则创建空余额)。"""
-    userIdStr = _userIdAsString(userId)
+    numericUserId = _userIdAsInt(userId)
     balance = db.execute(
-        select(IdentityBalance).where(IdentityBalance.userId == userIdStr)
+        select(IdentityBalance).where(IdentityBalance.userId == numericUserId)
     ).scalar_one_or_none()
     if balance is None:
-        balance = IdentityBalance(userId=userIdStr)
+        balance = IdentityBalance(userId=numericUserId)
         db.add(balance)
         db.flush()
     return balance
@@ -89,10 +88,10 @@ def _ensureIdentityBalance(db: Session, userId: int) -> IdentityBalance:
 
 def _lockIdentityBalance(db: Session, userId: int) -> IdentityBalance:
     """行锁 user_balance(SELECT ... FOR UPDATE)。"""
-    userIdStr = _userIdAsString(userId)
+    numericUserId = _userIdAsInt(userId)
     balance = db.execute(
         select(IdentityBalance)
-        .where(IdentityBalance.userId == userIdStr)
+        .where(IdentityBalance.userId == numericUserId)
         .with_for_update()
     ).scalar_one_or_none()
     if balance is None:
@@ -244,7 +243,6 @@ def preauth(
 ) -> PreauthResponse:
     """预占(冻结)余额;同时写 ledger(reserve)+ idempotency_keys。"""
     pricing = pricing or getPricingService()
-    rule = pricing.rule(actionType)
     estimatedCost = pricing.estimate(actionType, resourceUsed)
 
     requestPayload: dict[str, Any] = {
@@ -269,36 +267,33 @@ def preauth(
             return PreauthResponse.model_validate(hit.responseBody)
 
     balance = _lockIdentityBalance(db, userId)
-    if int(balance.balance or 0) < estimatedCost:
+    availableBefore = int(balance.balance or 0) - int(balance.reserved or 0)
+    if availableBefore < estimatedCost:
         raise ApiError(
             "INSUFFICIENT_BALANCE",
-            f"余额不足: 当前 {balance.balance}, 需要 {estimatedCost}",
-            details={"currentBalance": int(balance.balance or 0), "required": estimatedCost},
+            f"余额不足: 当前可用 {availableBefore}, 需要 {estimatedCost}",
+            details={"currentBalance": availableBefore, "required": estimatedCost},
         )
 
     balanceBefore = int(balance.balance or 0)
-    balance.balance = balanceBefore - estimatedCost
     balance.reserved = int(balance.reserved or 0) + estimatedCost
     balance.version = int(balance.version or 0) + 1
     db.flush()
-    balanceAfter = int(balance.balance or 0)
     reservedAfter = int(balance.reserved or 0)
+    availableAfter = int(balance.balance or 0) - reservedAfter
 
     billId = str(uuid.uuid4())
     bill = Bill(
         billId=billId,
         userId=userId,
-        actionType=actionType,
-        actionDisplayName=rule.displayName,
+        feature=actionType,
         estimatedCost=estimatedCost,
-        realCost=estimatedCost,
-        resourceUsed=resourceUsed,
-        balanceBefore=balanceBefore,
-        balanceAfter=balanceAfter,
+        actualCost=None,
         status="pending",
-        taskId=taskId or "",
         description=description or "",
-        idempotencyKey=idempotencyKey,
+        idempotencyKey=idempotencyKey or f"auto:{billId}",
+        requestHash=requestHash,
+        preauthExpiresAt=_now() + timedelta(minutes=15),
     )
     db.add(bill)
     db.flush()
@@ -308,9 +303,9 @@ def preauth(
         userId=userId,
         entryType="reserve",
         amount=estimatedCost,
-        balanceDelta=-estimatedCost,
+        balanceDelta=0,
         reservedDelta=+estimatedCost,
-        balanceAfter=balanceAfter,
+        balanceAfter=balanceBefore,
         reservedAfter=reservedAfter,
         source="preauth",
         refType="bill",
@@ -321,7 +316,7 @@ def preauth(
     result = PreauthResponse(
         billId=billId,
         estimatedCost=estimatedCost,
-        balanceAfter=balanceAfter,
+        balanceAfter=availableAfter,
     )
 
     if idempotencyKey:
@@ -340,7 +335,7 @@ def preauth(
     db.commit()
     logger.info(
         f"[Billing] preauth user={userId} action={actionType} "
-        f"cost={estimatedCost} bill={billId} balanceAfter={balanceAfter} reserved={reservedAfter}"
+        f"cost={estimatedCost} bill={billId} availableAfter={availableAfter} reserved={reservedAfter}"
     )
     return result
 
@@ -361,7 +356,7 @@ def settle(
     """结算 bill:reserved -= estimated;balance -= actual;差额退 reserve。"""
     requestPayload = {"billId": billId, "realCost": realCost, "resourceUsed": resourceUsed}
     requestHash = _hashRequest(requestPayload)
-    bill = db.get(Bill, billId)
+    bill = db.execute(select(Bill).where(Bill.billId == billId).with_for_update()).scalar_one_or_none()
     if bill is None:
         raise ApiError("BILL_NOT_FOUND", "账单不存在", httpStatus=409)
     userId = int(bill.userId)
@@ -383,20 +378,17 @@ def settle(
     reservedBefore = int(balance.reserved or 0)
     balanceBefore = int(balance.balance or 0)
 
-    # 解除 estimated 预占;实际只扣 realCost;差额退 reserve → balance
+    # 解除整笔预占，并从总余额扣除实际消费。
     balance.reserved = max(0, reservedBefore - estimated)
     refundAmount = estimated - realCost
-    balance.balance = balanceBefore + refundAmount  # 差额先退回 balance
-    balance.balance = int(balance.balance) - realCost  # 然后扣实付
+    balance.balance = balanceBefore - realCost
     balance.lifetimeConsumed = int(balance.lifetimeConsumed or 0) + realCost
     balance.version = int(balance.version or 0) + 1
     db.flush()
     reservedAfter = int(balance.reserved or 0)
     balanceAfter = int(balance.balance or 0)
 
-    bill.realCost = realCost
-    bill.resourceUsed = resourceUsed or int(bill.resourceUsed or 0)
-    bill.balanceAfter = balanceAfter
+    bill.actualCost = realCost
     bill.status = "settled"
     bill.settledAt = _now()
     db.flush()
@@ -409,13 +401,13 @@ def settle(
             entryType="consume",
             amount=realCost,
             balanceDelta=-realCost,
-            reservedDelta=0,
+            reservedDelta=-realCost,
             balanceAfter=balanceAfter,
             reservedAfter=reservedAfter,
             source="settle",
             refType="bill",
             refId=billId,
-            note=f"{bill.actionType} 实付",
+            note=f"{bill.feature} 实付",
         )
     if refundAmount > 0:
         _writeLedger(
@@ -423,14 +415,14 @@ def settle(
             userId=userId,
             entryType="unreserve",
             amount=refundAmount,
-            balanceDelta=+refundAmount,
-            reservedDelta=-estimated,  # 把整笔预占消除
+            balanceDelta=0,
+            reservedDelta=-refundAmount,
             balanceAfter=balanceAfter,
             reservedAfter=reservedAfter,
             source="settle",
             refType="bill",
             refId=billId,
-            note=f"{bill.actionType} 释放差额",
+            note=f"{bill.feature} 释放差额",
         )
 
     result = SettleResponse(
@@ -440,7 +432,7 @@ def settle(
         refunded=refundAmount,
     )
 
-    if bill.idempotencyKey:
+    if bill.idempotencyKey and not bill.idempotencyKey.startswith("auto:"):
         _recordIdempotency(
             db,
             userId=userId,
@@ -475,7 +467,7 @@ def refund(
     """退款:reserved -= cost, balance += cost(全退),bill.status='refunded'。"""
     requestPayload = {"billId": billId}
     requestHash = _hashRequest(requestPayload)
-    bill = db.get(Bill, billId)
+    bill = db.execute(select(Bill).where(Bill.billId == billId).with_for_update()).scalar_one_or_none()
     if bill is None:
         raise ApiError("BILL_NOT_FOUND", "账单不存在", httpStatus=409)
     userId = int(bill.userId)
@@ -487,17 +479,14 @@ def refund(
     estimated = int(bill.estimatedCost or 0)
     balance = _lockIdentityBalance(db, userId)
     reservedBefore = int(balance.reserved or 0)
-    balanceBefore = int(balance.balance or 0)
     balance.reserved = max(0, reservedBefore - estimated)
-    balance.balance = balanceBefore + estimated
     balance.version = int(balance.version or 0) + 1
     db.flush()
     reservedAfter = int(balance.reserved or 0)
     balanceAfter = int(balance.balance or 0)
 
     bill.status = "refunded"
-    bill.balanceAfter = balanceAfter
-    bill.settledAt = _now()
+    bill.refundedAt = _now()
     db.flush()
 
     _writeLedger(
@@ -505,14 +494,14 @@ def refund(
         userId=userId,
         entryType="refund",
         amount=estimated,
-        balanceDelta=+estimated,
+        balanceDelta=0,
         reservedDelta=-estimated,
         balanceAfter=balanceAfter,
         reservedAfter=reservedAfter,
         source="refund",
         refType="bill",
         refId=billId,
-        note=f"{bill.actionType} 退款",
+        note=f"{bill.feature} 退款",
     )
 
     result = RefundResponse(
@@ -521,7 +510,7 @@ def refund(
         balanceAfter=balanceAfter,
     )
 
-    if bill.idempotencyKey:
+    if bill.idempotencyKey and not bill.idempotencyKey.startswith("auto:"):
         _recordIdempotency(
             db,
             userId=userId,

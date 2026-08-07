@@ -18,7 +18,7 @@ from sqlalchemy import select
 
 from app.db import getDb
 from app.errors import ApiError
-from app.models import AuditLog, Bill, LicenseCode, RechargeRecord, UserAccount, UserDevice
+from app.models import AuditLog, BalanceLedger, Bill, LicenseCode, UserAccount, UserDevice
 from app.security.hmac import hashCode
 
 # ---------------------------------------------------------------------------
@@ -214,7 +214,7 @@ def revokeCode(codeHash: str) -> dict[str, Any]:
         row = db.execute(select(LicenseCode).where(LicenseCode.codeHash == codeHash)).scalar_one_or_none()
         if row is None:
             raise ApiError("NOT_FOUND", "凭证不存在")
-        if row.status == "consumed":
+        if row.status == "exhausted":
             raise ApiError("CONFLICT", "凭证已消费,无法撤销")
         if row.status == "revoked":
             return {"codeHash": row.codeHash, "status": row.status}
@@ -249,8 +249,9 @@ def metricsSummary() -> dict[str, Any]:
         )
         sevenDayGrantTotal = int(
             db.execute(
-                select(saFunc.coalesce(saFunc.sum(RechargeRecord.amount), 0)).where(
-                    RechargeRecord.createdAt >= since
+                select(saFunc.coalesce(saFunc.sum(BalanceLedger.amount), 0)).where(
+                    BalanceLedger.entryType == "grant",
+                    BalanceLedger.createdAt >= since,
                 )
             ).scalar_one()
             or 0

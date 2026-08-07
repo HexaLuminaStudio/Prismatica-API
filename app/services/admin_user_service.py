@@ -1,7 +1,6 @@
 """Admin 用户管理服务。"""
 from __future__ import annotations
 
-import uuid
 from datetime import UTC, datetime
 from typing import Any
 
@@ -10,7 +9,7 @@ from sqlalchemy import select
 
 from app.db import getDb
 from app.errors import ApiError
-from app.models import RechargeRecord, RefreshToken, UserAccount, UserBalance, UserDevice
+from app.models import BalanceLedger, RefreshToken, UserAccount, UserBalance, UserDevice
 from app.services.admin_audit_service import recordAudit
 
 
@@ -124,9 +123,17 @@ def updateUserTier(userId: str, tier: str, status: str | None = None) -> dict[st
     validTiers = {"free", "pro", "team"}
     if tier not in validTiers:
         raise ApiError("BAD_REQUEST", f"tier 必须为 {sorted(validTiers)} 之一")
-    validStatus = {"active", "suspended", "expired"}
-    if status and status not in validStatus:
-        raise ApiError("BAD_REQUEST", f"status 必须为 {sorted(validStatus)} 之一")
+    statusAliases = {
+        "active": "active",
+        "paused": "paused",
+        "banned": "banned",
+        "deleted": "deleted",
+        "suspended": "paused",
+        "expired": "paused",
+    }
+    if status and status not in statusAliases:
+        raise ApiError("BAD_REQUEST", f"status 必须为 {sorted(statusAliases)} 之一")
+    normalizedStatus = statusAliases.get(status) if status else None
 
     numericUserId = _parseUserId(userId)
     with getDb() as db:
@@ -135,8 +142,8 @@ def updateUserTier(userId: str, tier: str, status: str | None = None) -> dict[st
             raise ApiError("NOT_FOUND", "用户不存在")
         oldTier = user.tier
         user.tier = tier
-        if status:
-            user.status = status
+        if normalizedStatus:
+            user.status = normalizedStatus
         finalStatus = user.status
         db.commit()
 
@@ -164,21 +171,23 @@ def grantBalance(userId: str, amount: int, note: str = "") -> dict[str, Any]:
             db.add(balance)
             db.flush()
 
-        beforeBalance = balance.balance
         balance.balance += amount
         balance.totalRecharged += amount
         balance.version += 1
         afterBalance = balance.balance
 
         db.add(
-            RechargeRecord(
-                recordId=str(uuid.uuid4()),
+            BalanceLedger(
                 userId=numericUserId,
+                entryType="grant",
                 amount=amount,
-                source="admin_grant",
-                operatorNote=note,
-                balanceBefore=beforeBalance,
+                balanceDelta=amount,
+                reservedDelta=0,
                 balanceAfter=afterBalance,
+                reservedAfter=int(balance.reserved or 0),
+                source="admin_grant",
+                refType="admin",
+                note=note,
             )
         )
         db.commit()
