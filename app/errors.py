@@ -25,6 +25,7 @@
     ADMIN_LOGIN_REQUIRED=401 / ADMIN_ACCOUNT_LOCKED=423 /
     ADMIN_INVALID_CREDENTIALS=401
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -56,6 +57,26 @@ _ERROR_HTTP: dict[str, int] = {
     "ADMIN_LOGIN_REQUIRED": 401,
     "ADMIN_ACCOUNT_LOCKED": 423,
     "ADMIN_INVALID_CREDENTIALS": 401,
+    "TOKEN_REVOKED": 401,
+    "EMAIL_ALREADY_USED": 409,
+    "INVALID_CREDENTIALS": 401,
+    "ACCOUNT_LOCKED": 423,
+    "MAX_DEVICES_REACHED": 403,
+    "REFRESH_INVALID": 401,
+    "REFRESH_EXPIRED": 401,
+    "RESET_TOKEN_INVALID": 400,
+    "RESET_TOKEN_USED": 410,
+    "RESET_TOKEN_EXPIRED": 410,
+    # 2026-08-07 M9:补的错误码
+    "USER_NOT_FOUND": 404,
+    "DEVICE_NOT_FOUND": 404,
+    "SUBSCRIPTION_NOT_FOUND": 404,
+    "PLAN_NOT_FOUND": 400,
+    "IDEMPOTENCY_CONFLICT": 409,
+    "WEAK_PASSWORD": 400,
+    "DISPLAY_NAME_INVALID": 400,
+    "ACCOUNT_DELETED": 410,
+    "TOO_MANY_DEVICES": 403,
 }
 
 _ERROR_MESSAGE_CN: dict[str, str] = {
@@ -78,6 +99,26 @@ _ERROR_MESSAGE_CN: dict[str, str] = {
     "ADMIN_LOGIN_REQUIRED": "请先登录管理后台",
     "ADMIN_ACCOUNT_LOCKED": "管理员账号已被锁定,请联系超级管理员",
     "ADMIN_INVALID_CREDENTIALS": "用户名或密码错误",
+    "TOKEN_REVOKED": "登录凭证已被撤销,请重新登录",
+    "EMAIL_ALREADY_USED": "该邮箱已被注册",
+    "INVALID_CREDENTIALS": "邮箱或密码错误",
+    "ACCOUNT_LOCKED": "登录失败次数过多,账号已暂时锁定",
+    "MAX_DEVICES_REACHED": "已达到可登录设备数量上限",
+    "REFRESH_INVALID": "刷新凭证无效",
+    "REFRESH_EXPIRED": "刷新凭证已过期,请重新登录",
+    "RESET_TOKEN_INVALID": "密码重置凭证无效",
+    "RESET_TOKEN_USED": "密码重置凭证已被使用",
+    "RESET_TOKEN_EXPIRED": "密码重置凭证已过期",
+    # 2026-08-07 M9
+    "USER_NOT_FOUND": "用户不存在",
+    "DEVICE_NOT_FOUND": "设备不存在",
+    "SUBSCRIPTION_NOT_FOUND": "订阅不存在",
+    "PLAN_NOT_FOUND": "订阅计划不存在",
+    "IDEMPOTENCY_CONFLICT": "幂等键冲突",
+    "WEAK_PASSWORD": "密码强度不足,至少 10 位且包含字母+数字",
+    "DISPLAY_NAME_INVALID": "昵称不合法,长度需在 0-64 字符",
+    "ACCOUNT_DELETED": "账号已注销",
+    "TOO_MANY_DEVICES": "设备数量超过上限",
 }
 
 
@@ -152,6 +193,8 @@ def successEnvelope(data: Any, httpStatus: int = 200) -> tuple[Any, int]:
 def registerErrorHandlers(app) -> None:
     """注册全局错误处理(Flask app)。"""
 
+    from flask_limiter.errors import RateLimitExceeded
+
     @app.errorhandler(ApiError)
     def _handleApiError(err: ApiError):
         logger.warning(f"[ApiError] {err.code}: {err.message} details={err.details}")
@@ -173,11 +216,14 @@ def registerErrorHandlers(app) -> None:
     @app.errorhandler(405)
     def _handle405(_err):
         return (
-            jsonify(
-                {"code": "BAD_REQUEST", "message": "方法不被允许"}
-            ),
+            jsonify({"code": "BAD_REQUEST", "message": "方法不被允许"}),
             405,
         )
+
+    @app.errorhandler(RateLimitExceeded)
+    def _handleRateLimit(_err):
+        error = ApiError("RATE_LIMITED", httpStatus=429)
+        return jsonify(error.toEnvelope()), 429
 
     @app.errorhandler(Exception)
     def _handleException(err: Exception):

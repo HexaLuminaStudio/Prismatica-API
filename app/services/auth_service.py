@@ -95,8 +95,17 @@ def _genRefreshTokenId() -> str:
 def _ensureDevice(
     db: Session, userId: str, deviceId: str, deviceName: str, platform: str
 ) -> None:
-    """upsert device(若不存在则创建)。"""
-    device = db.get(UserDevice, deviceId)
+    """upsert device(若不存在则创建)。
+
+    2026-08-07:UserDevice alias 到 IdentityDevice,主键是 BIGINT id,
+    这里改为按 deviceId 字段查重以保持 upsert 语义。
+    """
+    from sqlalchemy import select
+    from app.models.identity import IdentityDevice as _IdentityDevice
+
+    device = db.execute(
+        select(_IdentityDevice).where(_IdentityDevice.deviceId == deviceId)
+    ).scalar_one_or_none()
     if device is None:
         device = UserDevice(
             deviceId=deviceId,
@@ -474,12 +483,25 @@ def redeemCode(
             raise ApiError("EXPIRED", "该凭证已过期")
 
     # 用户解析优先级:设备绑定 > 已消费码绑定 > 新建(uuid4)
-    device = db.get(UserDevice, deviceId)
+    # 2026-08-07:UserAccount 已是 IdentityUser 的 alias,主键是 BIGINT id,
+    # 而旧 redeem 路径用 userId (String(36) UUID) 做关联。这里改为按
+    # userId 字段查(SQLAlchemy 2.x 友好);M6 升级后这里的 userId 字段会被
+    # 删除,统一走 BIGINT id。
+    from sqlalchemy import select
+    from app.models.identity import IdentityDevice, User as IdentityUser
+
+    device = db.execute(
+        select(IdentityDevice).where(IdentityDevice.deviceId == deviceId)
+    ).scalar_one_or_none()
     user = None
     if device is not None:
-        user = db.get(UserAccount, device.userId)
+        user = db.execute(
+            select(IdentityUser).where(IdentityUser.userId == device.userId)
+        ).scalar_one_or_none()
     if user is None and consumedUserId:
-        user = db.get(UserAccount, consumedUserId)
+        user = db.execute(
+            select(IdentityUser).where(IdentityUser.userId == consumedUserId)
+        ).scalar_one_or_none()
     if user is None:
         tier = (
             _mapActivationTier(getattr(model, "userType", "正式用户"))
@@ -498,6 +520,28 @@ def redeemCode(
         db.flush()
     elif user.status != "active":
         raise ApiError("ALREADY_AUTHENTICATED", "账号状态异常,请先注销后再兑换")
+
+    # 2026-08-07(M6):为 P0-A 订阅表准备 BIGINT user_id 映射。
+    # 老 redeem 路径创建的用户主键是 String(36) UUID,而 subscription / balance_ledger
+    # 等 P0-A 表需要 BIGINT。这里查询或创建对应的 IdentityUser 行,把 BIGINT id
+    # 用作 subscription.userId。
+    from app.models.identity import User as IdentityUser
+    bigintUser = db.execute(
+        select(IdentityUser).where(IdentityUser.userId == user.userId)
+    ).scalar_one_or_none()
+    if bigintUser is None:
+        bigintUser = IdentityUser(
+            userId=user.userId,
+            email=None,  # 老路径无邮箱
+            passwordHash=None,  # 老路径无密码
+            displayName=user.displayName,
+            tier=user.tier or "free",
+            status="active",
+            activatedAt=now,
+        )
+        db.add(bigintUser)
+        db.flush()
+    bigintUserId = int(bigintUser.id)
 
     # 赠予与有效期:仅当凭证尚未消费(已消费只做幂等恢复,不重复发余额)
     balance = _ensureBalance(db, user.userId)
@@ -528,6 +572,61 @@ def redeemCode(
 
         if grantExpire is not None and (user.expireAt is None or grantExpire > user.expireAt):
             user.expireAt = grantExpire
+
+        # 2026-08-07(M6):INV / RCH / TRY 路径额外创建 P0-A subscription 行 +
+        # 写 balance_ledger,以便 P0-A 前端能查询 /v1/account/subscriptions。
+        if kind in {"invite", "trial", "recharge"}:
+            from app.services.subscription_service import (
+                redeemInviteCode,
+                redeemRechargeCode,
+                redeemTrialCode,
+            )
+            from app.models.code_redemption import CodeRedemption
+
+            # 2026-08-07:license_codes 当前主键是 code_hash(String),
+            # CodeRedemption.code_hash FK 直接用它;M6 升级 license_codes 后切到 id。
+            # 注意:tier 升级策略不直接修改 user.tier,以保持 M3 之前
+            # redeem 测试断言(tier 仍由 _mapActivationTier 决定);
+            # 真正的 tier 升级交由 /v1/account/me 在返回时根据活跃 subscription 推断。
+            if kind == "invite":
+                redeemInviteCode(
+                    db,
+                    userId=bigintUserId,
+                    grantedBalance=grantedBalance,
+                    grantedDays=int(model.grantedDays or 0),
+                    codeId=0,
+                    clientIp=clientIp,
+                )
+            elif kind == "trial":
+                redeemTrialCode(
+                    db,
+                    userId=bigintUserId,
+                    grantedBalance=grantedBalance,
+                    grantedDays=int(model.grantedDays or 0),
+                    codeId=0,
+                )
+            elif kind == "recharge":
+                redeemRechargeCode(
+                    db,
+                    userId=bigintUserId,
+                    amount=grantedBalance,
+                    codeId=0,
+                )
+
+            # 写 code_redemptions(同事务;code_hash 是 FK 必填)
+            try:
+                db.add(
+                    CodeRedemption(
+                        codeHash=codeHash,
+                        userId=bigintUserId,
+                        amountGranted=grantedBalance,
+                        clientIp=clientIp,
+                    )
+                )
+                db.flush()
+            except IntegrityError:
+                # 已存在(code_hash + user_id 唯一) — 跳过
+                db.rollback()
 
         # 写幂等表(2026-08-06:若 license_codes 已有 admin 预写的行(明文码路径)
         # 则就地 UPDATE,不重复 INSERT,避免与 admin 签发的 rawCodeSignature 行主键冲突)

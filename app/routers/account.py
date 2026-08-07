@@ -1,4 +1,4 @@
-"""/v1/account/* 路由:me / bills。"""
+"""/v1/account/* 路由:me / patch / bills / devices / delete / subscriptions。"""
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -6,12 +6,32 @@ from datetime import datetime
 
 from flask import Blueprint, g, request
 from sqlalchemy import select
+from pydantic import ValidationError
 
 from app.db import getDb
-from app.deps import requireAuth
+from app.deps import requireAuth, requireUser
 from app.errors import ApiError, successEnvelope
-from app.models import Bill, UserAccount, UserBalance
-from app.schemas.user import BillListResponse, BillOut, UserAccountOut
+from app.middleware.audit_log import auditAction
+from app.models import Bill, Subscription
+from app.models.identity import IdentityBalance, User
+from app.schemas.account import (
+    DeleteAccountRequest,
+    DeleteAccountResponse,
+    DeviceListResponse,
+    MeOut,
+    MePatchRequest,
+    MePatchResponse,
+    SubscriptionListResponse,
+    SubscriptionOut,
+)
+from app.schemas.user import BillListResponse, BillOut, CurrentAccountOut
+from app.services.account_service import (
+    deleteAccount as accountDeleteAccount,
+    listDevices as accountListDevices,
+    patchMe as accountPatchMe,
+    revokeDevice as accountRevokeDevice,
+)
+from app.services.account_service import getMe as accountGetMe
 
 bp = Blueprint("account", __name__, url_prefix="/v1/account")
 
@@ -22,28 +42,34 @@ def _sessionCtx():
         yield db
 
 
+# ---------------------------------------------------------------------------
+# /me(P0-A 完整版,含订阅 + 风控字段)
+# ---------------------------------------------------------------------------
+
+
 @bp.get("/me")
-@requireAuth
+@requireUser
 def getMe():
     with _sessionCtx() as db:
-        user = db.get(UserAccount, g.userId)
-        balance = db.get(UserBalance, g.userId)
-        if user is None:
-            raise ApiError("NOT_FOUND", "用户不存在", httpStatus=404)
-        if balance is None:
-            balance = UserBalance(userId=user.userId)
-        resp = UserAccountOut(
-            userId=user.userId,
-            displayName=user.displayName,
-            tier=user.tier,
-            balance=balance.balance,
-            frozenBalance=balance.frozenBalance,
-            totalSpent=balance.totalSpent,
-            totalRecharged=balance.totalRecharged,
-            activatedAt=user.activatedAt,
-            expireAt=user.expireAt,
-        )
+        result = accountGetMe(db, g.userId)
+        return successEnvelope(result.model_dump(mode="json"))
+
+
+@bp.patch("/me")
+@requireUser
+def patchMe():
+    try:
+        payload = MePatchRequest.model_validate(request.get_json(force=True, silent=False))
+    except ValidationError as error:
+        raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": error.errors()}) from error
+    with _sessionCtx() as db:
+        resp: MePatchResponse = accountPatchMe(db, g.userId, payload.displayName)
         return successEnvelope(resp.model_dump(mode="json"))
+
+
+# ---------------------------------------------------------------------------
+# /bills(旧版,沿用 BillOut 兼容 UI)
+# ---------------------------------------------------------------------------
 
 
 @bp.get("/bills")
@@ -88,3 +114,117 @@ def getBills():
             for r in rows
         ]
         return successEnvelope(BillListResponse(items=items, nextCursor=nextCursor).model_dump(mode="json"))
+
+
+# ---------------------------------------------------------------------------
+# /subscriptions(P0-A,新)
+# ---------------------------------------------------------------------------
+
+
+@bp.get("/subscriptions")
+@requireUser
+def listSubscriptions():
+    """当前 + 历史订阅(分页 cursor 形式,按 current_period_end desc)。"""
+    limit = int(request.args.get("limit", 50))
+    limit = max(1, min(200, limit))
+    cursor = request.args.get("cursor")
+
+    with _sessionCtx() as db:
+        stmt = select(Subscription).where(Subscription.userId == g.userId)
+        if cursor:
+            try:
+                cursorDt = datetime.fromisoformat(cursor.replace("Z", "+00:00"))
+            except ValueError as e:
+                raise ApiError("BAD_REQUEST", f"cursor 格式错误: {e}") from e
+            stmt = stmt.where(Subscription.currentPeriodEnd < cursorDt)
+        stmt = stmt.order_by(Subscription.currentPeriodEnd.desc()).limit(limit + 1)
+        rows = db.execute(stmt).scalars().all()
+
+        nextCursor: str | None = None
+        if len(rows) > limit:
+            nextCursor = rows[limit - 1].currentPeriodEnd.isoformat()
+            rows = rows[:limit]
+        items = [
+            SubscriptionOut(
+                subscriptionId=r.id,
+                planCode=r.planCode,
+                status=r.status,
+                startedAt=r.startedAt,
+                currentPeriodStart=r.currentPeriodStart,
+                currentPeriodEnd=r.currentPeriodEnd,
+                expiresAt=r.expiresAt,
+                autoRenew=bool(r.autoRenew),
+                monthlyQuota=int(r.monthlyQuota or 0),
+            )
+            for r in rows
+        ]
+        return successEnvelope(
+            SubscriptionListResponse(items=items, nextCursor=nextCursor).model_dump(mode="json")
+        )
+
+
+# ---------------------------------------------------------------------------
+# /devices(P0-A,新)
+# ---------------------------------------------------------------------------
+
+
+@bp.get("/devices")
+@requireUser
+def listDevices():
+    currentDeviceId = g.deviceId
+    with _sessionCtx() as db:
+        items, maxActive, activeCount = accountListDevices(db, g.userId, currentDeviceId)
+        body = DeviceListResponse(
+            items=items,
+            maxActive=maxActive,
+            activeCount=activeCount,
+        ).model_dump(mode="json")
+        return successEnvelope(body)
+
+
+@bp.delete("/devices/<int:deviceRecordId>")
+@requireUser
+@auditAction("user.device_revoke", targetType="user_device")
+def deleteDevice(deviceRecordId: int):
+    currentDeviceId = g.deviceId
+    with _sessionCtx() as db:
+        revokedCount = accountRevokeDevice(db, g.userId, deviceRecordId, currentDeviceId)
+    return successEnvelope(
+        {"deviceId": deviceRecordId, "revokedRefreshTokens": revokedCount, "status": "revoked"}
+    )
+
+
+# ---------------------------------------------------------------------------
+# /delete(P0-A,新)
+# ---------------------------------------------------------------------------
+
+
+@bp.post("/delete")
+@requireUser
+@auditAction("user.account_deleted")
+def postDeleteAccount():
+    try:
+        payload = DeleteAccountRequest.model_validate(
+            request.get_json(force=True, silent=False)
+        )
+    except ValidationError as error:
+        raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": error.errors()}) from error
+    if not payload.confirm:
+        raise ApiError("BAD_REQUEST", "必须显式确认 confirm=true", httpStatus=400)
+
+    currentDeviceId = g.deviceId
+    with _sessionCtx() as db:
+        revokedCount, scheduledAt = accountDeleteAccount(
+            db, g.userId, payload.password, currentDeviceId
+        )
+    return successEnvelope(
+        DeleteAccountResponse(
+            userId=g.userId,
+            status="deleted",
+            scheduledHardDeleteAt=scheduledAt,
+            revokedRefreshTokens=revokedCount,
+        ).model_dump(mode="json")
+    )
+
+
+__all__ = ["bp"]

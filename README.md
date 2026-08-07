@@ -4,7 +4,7 @@ Prismatica 桌面客户端的云端后端(对齐 `docs/backend-prd.md` PRD v2)�
 
 - **范围**:用户登录 + 积分结算(redeem / refresh / estimate / preauth / settle / refund / account / admin)
 - **技术栈**:Flask 3 + SQLAlchemy 2.x(同步)+ PyMySQL + PyJWT + bcrypt + pydantic v2 + loguru + Flask-Limiter + prometheus-client
-- **持久化**:MySQL 8.0(`scripts/schema.sql` 一键建库,9 张表 = 8 张业务表 + `admin_users` 管理账号)
+- **持久化**:MySQL 8.0（版本化迁移；P0-A 为 14 张业务表 + `schema_migrations`）
 - **部署**:Docker + docker-compose(Flask + MySQL + Redis)
 
 ## 快速启动
@@ -16,14 +16,15 @@ Prismatica 桌面客户端的云端后端(对齐 `docs/backend-prd.md` PRD v2)�
 uv sync
 # 或 pip install -e .[dev]
 
-# 2. 准备 MySQL,导入 schema
-mysql -uroot -p < scripts/schema.sql
-
-# 3. 复制并修改 .env
+# 2. 复制并修改 .env
 cp .env.example .env
 # 填入 LICENSE_SECRET / JWT_SECRET / ADMIN_TOKEN / DB_PASSWORD
 
-# 4. 启动
+# 3. 准备空 MySQL 数据库并执行版本化迁移（可安全重复运行）
+python -m scripts.migrate_account_billing
+python -m scripts.db_preflight
+
+# 4. 启动（P0-A M2-M9 完成前，旧 ORM 尚未适配新 schema）
 python -m app.main
 # 或生产模式
 gunicorn -w 4 -b 0.0.0.0:8000 'app.main:app'
@@ -54,7 +55,10 @@ app/
 ├── services/        auth_service / billing_service / pricing
 └── middleware/      request_id / access_log
 scripts/
-└── schema.sql       MySQL 8 表结构 + 索引 + CHECK 约束
+├── migrations/      MySQL 8 版本化 DDL
+├── migrate_account_billing.py  幂等 up/down 迁移器
+├── db_preflight.py  只读 schema 就绪检查
+└── schema.sql       禁止启动期隐式建表的兼容占位文件
 tests/
 ├── test_pricing.py  纯逻辑,无 DB
 ├── test_hmac.py     凭证签名/验签
@@ -70,9 +74,14 @@ deploy/
 | 公共 | `GET /healthz` | 无 | 健康检查(DB 探测) |
 | 公共 | `GET /metrics` | 无 | Prometheus 指标 |
 | 公共 | `GET /openapi.json` | 无 | OpenAPI 3.0 简版 |
+| Auth | `POST /v1/auth/register` | 无 | 邮箱密码注册（5/h/IP） |
+| Auth | `POST /v1/auth/login` | 无 | 邮箱密码 + 设备登录；失败锁定与双维度限速 |
 | Auth | `POST /v1/auth/redeem` | 无 | 兑换 INV/TRY/RCH 码 |
-| Auth | `POST /v1/auth/refresh` | 无 | refresh_token 换新 access |
-| Auth | `POST /v1/auth/logout` | 可选 JWT | 撤销 refresh_token |
+| Auth | `POST /v1/auth/refresh` | 无 | Refresh JWT 单次轮换；旧 token 立即失效 |
+| Auth | `POST /v1/auth/logout` | 无 | 幂等撤销 Refresh JWT |
+| Auth | `POST /v1/auth/password/reset-request` | 无 | 申请重置；无论邮箱是否存在都返回相同响应 |
+| Auth | `POST /v1/auth/password/reset-confirm` | 无 | 30 分钟一次性 token 确认重置 |
+| Auth | `POST /v1/auth/password/change` | JWT + Device | 修改密码并撤销全部 Refresh Token |
 | Account | `GET /v1/account/me` | JWT | 当前用户 + 余额 |
 | Account | `GET /v1/account/bills` | JWT | 账单列表(cursor 分页) |
 | Billing | `POST /v1/billing/estimate` | JWT | 费用预估(只读) |

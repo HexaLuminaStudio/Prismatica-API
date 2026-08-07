@@ -19,8 +19,10 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
 from app.models import LicenseCode, UserAccount, UserBalance, UserDevice
+from app.models.identity import IdentityDevice
 from app.security import hmac as hmacUtil
 from app.services.auth_service import redeemCode
+from sqlalchemy import select
 
 
 @pytest.fixture()
@@ -99,8 +101,10 @@ def test_redeem_new_code_creates_uuid4_user(db):
     parsed = uuid.UUID(r.user.userId)
     assert parsed.version == 4
     assert r.balance.balance == 100
-    # 设备已绑定
-    device = db.get(UserDevice, "00000000-0000-0000-0000-000000000001")
+    # 设备已绑定(P0-A IdentityDevice 主键是 BIGINT id,按 deviceId 字段查)
+    device = db.execute(
+        select(IdentityDevice).where(IdentityDevice.deviceId == "00000000-0000-0000-0000-000000000001")
+    ).scalar_one_or_none()
     assert device is not None
     assert device.userId == r.user.userId
     # 幂等表已消费
@@ -138,9 +142,16 @@ def test_same_device_new_code_keeps_user_and_merges_balance(db):
     assert r2.user.userId == r1.user.userId
     assert r2.balance.balance == 200
     # 数据库侧余额同样为 200
-    balance = db.get(UserBalance, r1.user.userId)
+    # 2026-08-07:IdentityUser 主键是 BIGINT id;UserAccount alias 共用同一表;
+    # 按 userId(String) 查需要 select 表达式,而不是 db.get。
+    balance = db.execute(
+        select(UserBalance).where(UserBalance.userId == r1.user.userId)
+    ).scalar_one_or_none()
+    assert balance is not None
     assert balance.balance == 200
-    user = db.get(UserAccount, r1.user.userId)
+    user = db.execute(
+        select(UserAccount).where(UserAccount.userId == r1.user.userId)
+    ).scalar_one_or_none()
     assert user is not None
 
 

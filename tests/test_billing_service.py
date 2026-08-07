@@ -1,0 +1,256 @@
+"""P0-A billing_service 单元测试。
+
+覆盖:
+    - estimate / preauth / settle / refund 全链路
+    - ledger 写入:每次 preauth/settle/refund 都产生对应 entry
+    - Idempotency-Key 命中 / 不同 body 报错
+    - settle 校验 0 <= realCost <= estimated
+    - 余额不足 → INSUFFICIENT_BALANCE
+"""
+from __future__ import annotations
+
+from collections.abc import Iterator
+from datetime import UTC, datetime
+
+import pytest
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.db import Base
+from app.errors import ApiError
+from app.models.balance_ledger import BalanceLedger
+from app.models.bill import Bill
+from app.models.idempotency_key import IdempotencyKey
+from app.models.identity import User as IdentityUser
+from app.services.billing_service import (
+    estimate,
+    preauth,
+    refund,
+    settle,
+)
+
+
+@pytest.fixture()
+def db() -> Iterator[Session]:
+    engine = create_engine("sqlite://", future=True, connect_args={"check_same_thread": False})
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+    with factory() as session:
+        yield session
+    engine.dispose()
+
+
+def _makeUserWithBalance(db: Session, balance: int) -> IdentityUser:
+    import uuid as _uuid
+    user = IdentityUser(
+        email=f"u{_uuid.uuid4().hex[:8]}@example.com",
+        passwordHash="x",
+        displayName="U",
+        tier="free",
+        status="active",
+    )
+    db.add(user)
+    db.flush()
+    # 直接写 IdentityBalance 行
+    from app.models.identity import IdentityBalance
+    bal = IdentityBalance(userId=str(user.id), balance=balance, reserved=0)
+    db.add(bal)
+    db.flush()
+    return user
+
+
+# ---------------------------------------------------------------------------
+# estimate
+# ---------------------------------------------------------------------------
+
+
+def testEstimate_ReturnsAffordability(db: Session) -> None:
+    user = _makeUserWithBalance(db, 100)
+    preview = estimate(db, user.id, "freq_analyze", 5000)  # 5 千字
+    assert preview.actionType == "freq_analyze"
+    assert preview.estimatedCost > 0
+    assert preview.currentBalance == 100
+    assert preview.affordable is True
+
+
+def testEstimate_UnknownActionFallsBack(db: Session) -> None:
+    user = _makeUserWithBalance(db, 100)
+    preview = estimate(db, user.id, "unknown_action", 1)
+    assert preview.estimatedCost >= 1  # 兜底规则
+
+
+# ---------------------------------------------------------------------------
+# preauth + ledger
+# ---------------------------------------------------------------------------
+
+
+def testPreauth_DeductsBalanceAndReservesAndWritesLedger(db: Session) -> None:
+    user = _makeUserWithBalance(db, 500)
+    result = preauth(db, user.id, "kwic_search", 1000, taskId="t1", description="测试")
+    assert result.estimatedCost > 0
+    assert result.balanceAfter == 500 - result.estimatedCost
+
+    # ledger 应该有 1 条 reserve
+    ledgers = db.execute(
+        select(BalanceLedger).where(BalanceLedger.userId == user.id)
+    ).scalars().all()
+    assert len(ledgers) == 1
+    assert ledgers[0].entryType == "reserve"
+    assert ledgers[0].refType == "bill"
+    assert ledgers[0].refId == result.billId
+
+    # bill 存在
+    bill = db.get(Bill, result.billId)
+    assert bill is not None
+    assert bill.status == "pending"
+    assert bill.idempotencyKey is None
+
+
+def testPreauth_InsufficientBalanceRaises(db: Session) -> None:
+    user = _makeUserWithBalance(db, 1)
+    with pytest.raises(ApiError) as exc:
+        preauth(db, user.id, "dependency_parse", 50000)
+    assert exc.value.code == "INSUFFICIENT_BALANCE"
+
+
+# ---------------------------------------------------------------------------
+# Idempotency-Key
+# ---------------------------------------------------------------------------
+
+
+def testPreauth_IdempotencyKeyReturnsSameBill(db: Session) -> None:
+    user = _makeUserWithBalance(db, 500)
+    r1 = preauth(
+        db, user.id, "kwic_search", 1000, taskId="t1", idempotencyKey="key-001"
+    )
+    db.commit()
+
+    r2 = preauth(
+        db, user.id, "kwic_search", 1000, taskId="t1", idempotencyKey="key-001"
+    )
+    # r2 应该复用 r1 的 bill_id
+    assert r2.billId == r1.billId
+
+    # idempotency_keys 表应该只有 1 行
+    idem = db.execute(select(IdempotencyKey)).scalars().all()
+    assert len(idem) == 1
+    assert idem[0].idempotencyKey == "key-001"
+
+
+def testPreauth_IdempotencyKeyBodyMismatchRaises409(db: Session) -> None:
+    user = _makeUserWithBalance(db, 500)
+    preauth(
+        db, user.id, "kwic_search", 1000, taskId="t1", idempotencyKey="key-002"
+    )
+    db.commit()
+    with pytest.raises(ApiError) as exc:
+        preauth(
+            db, user.id, "kwic_search", 1000, taskId="t2", idempotencyKey="key-002"
+        )
+    # 2026-08-07 P0-A M9 错误码语义化:统一为 IDEMPOTENCY_CONFLICT(原 CONFLICT)
+    assert exc.value.code == "IDEMPOTENCY_CONFLICT"
+
+
+# ---------------------------------------------------------------------------
+# settle
+# ---------------------------------------------------------------------------
+
+
+def testSettle_FullSettleConsumesAndReleasesReserve(db: Session) -> None:
+    user = _makeUserWithBalance(db, 500)
+    preauthResp = preauth(db, user.id, "kwic_search", 1000)
+    db.commit()
+    estimated = preauthResp.estimatedCost
+    expectedBalanceAfter = 500 - estimated  # 全额结算不退还
+    settle(db, preauthResp.billId, realCost=estimated)
+    db.commit()
+
+    bill = db.get(Bill, preauthResp.billId)
+    assert bill.status == "settled"
+    assert bill.realCost == estimated
+
+    # ledger 应该:1 reserve + 1 consume
+    ledgers = db.execute(
+        select(BalanceLedger).where(BalanceLedger.userId == user.id)
+    ).scalars().all()
+    assert {l.entryType for l in ledgers} == {"reserve", "consume"}
+
+
+def testSettle_PartialSettleRefundsDifference(db: Session) -> None:
+    user = _makeUserWithBalance(db, 500)
+    preauthResp = preauth(db, user.id, "kwic_search", 5000)
+    db.commit()
+    estimated = preauthResp.estimatedCost
+    realCost = max(1, estimated - 5)  # 实际只用了 estimated - 5
+    result = settle(db, preauthResp.billId, realCost=realCost)
+    db.commit()
+    assert result.refunded == estimated - realCost
+    # ledger 应该有 reserve + unreserve + (consume if realCost > 0)
+    ledgers = db.execute(
+        select(BalanceLedger).where(BalanceLedger.userId == user.id)
+    ).scalars().all()
+    assert {l.entryType for l in ledgers} == {"reserve", "unreserve", "consume"}
+
+
+def testSettle_RealCostOutOfRangeRaises(db: Session) -> None:
+    user = _makeUserWithBalance(db, 500)
+    preauthResp = preauth(db, user.id, "kwic_search", 1000)
+    db.commit()
+    with pytest.raises(ApiError) as exc:
+        settle(db, preauthResp.billId, realCost=preauthResp.estimatedCost + 1)
+    assert exc.value.code == "BAD_REQUEST"
+    with pytest.raises(ApiError) as exc:
+        settle(db, preauthResp.billId, realCost=-1)
+    assert exc.value.code == "BAD_REQUEST"
+
+
+def testSettle_NotPendingRaises(db: Session) -> None:
+    user = _makeUserWithBalance(db, 500)
+    preauthResp = preauth(db, user.id, "kwic_search", 1000)
+    db.commit()
+    settle(db, preauthResp.billId, realCost=preauthResp.estimatedCost)
+    db.commit()
+    with pytest.raises(ApiError) as exc:
+        settle(db, preauthResp.billId, realCost=1)
+    assert exc.value.code == "BILL_ALREADY_SETTLED"
+
+
+# ---------------------------------------------------------------------------
+# refund
+# ---------------------------------------------------------------------------
+
+
+def testRefund_ReturnsAllBalanceAndReleasesReserve(db: Session) -> None:
+    user = _makeUserWithBalance(db, 500)
+    preauthResp = preauth(db, user.id, "kwic_search", 1000)
+    db.commit()
+    refund(db, preauthResp.billId)
+    db.commit()
+
+    bill = db.get(Bill, preauthResp.billId)
+    assert bill.status == "refunded"
+    # 用户余额应该恢复到 500
+    from app.models.identity import IdentityBalance
+
+    bal = db.execute(
+        select(IdentityBalance).where(IdentityBalance.userId == str(user.id))
+    ).scalar_one()
+    assert bal.balance == 500
+    assert bal.reserved == 0
+
+    # ledger:reserve + refund
+    ledgers = db.execute(
+        select(BalanceLedger).where(BalanceLedger.userId == user.id)
+    ).scalars().all()
+    assert {l.entryType for l in ledgers} == {"reserve", "refund"}
+
+
+def testRefund_AlreadySettledRaises(db: Session) -> None:
+    user = _makeUserWithBalance(db, 500)
+    preauthResp = preauth(db, user.id, "kwic_search", 1000)
+    db.commit()
+    settle(db, preauthResp.billId, realCost=preauthResp.estimatedCost)
+    db.commit()
+    with pytest.raises(ApiError) as exc:
+        refund(db, preauthResp.billId)
+    assert exc.value.code == "BILL_ALREADY_SETTLED"

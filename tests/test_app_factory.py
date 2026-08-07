@@ -1,4 +1,5 @@
 """应用工厂 smoke 测试:不连 DB,只验证路由注册 + envelope。"""
+
 from __future__ import annotations
 
 import pytest
@@ -34,6 +35,11 @@ def test_openapi_includes_v1_routes(app):
     assert resp.status_code == 200
     spec = resp.get_json()
     assert spec["openapi"].startswith("3.")
+    assert "/v1/auth/register" in spec["paths"]
+    assert "/v1/auth/login" in spec["paths"]
+    assert "/v1/auth/password/reset-request" in spec["paths"]
+    assert "/v1/auth/password/reset-confirm" in spec["paths"]
+    assert "/v1/auth/password/change" in spec["paths"]
     assert "/v1/auth/redeem" in spec["paths"]
     assert "/v1/billing/estimate" in spec["paths"]
     assert "/v1/account/me" in spec["paths"]

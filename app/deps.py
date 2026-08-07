@@ -1,9 +1,10 @@
-"""deps.py — Depends / 装饰器:鉴权 / db session / admin token / admin cookie。
-"""
+"""deps.py — Depends / 装饰器:鉴权 / db session / admin token / admin cookie。"""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from functools import wraps
+from typing import Any
 
 import jwt as pyjwt
 from flask import g, request
@@ -12,10 +13,82 @@ from app.config import getSettings
 from app.db import getDb
 from app.errors import ApiError
 from app.middleware.admin_session import readSessionCookie
-from app.models import AdminUser
+from app.models import AdminUser, RevokedToken
 from app.security.jwt import decodeAccessToken
 
 _settings = getSettings()
+
+
+@dataclass(frozen=True)
+class UserAuthContext:
+    userId: int
+    deviceId: str
+    tier: str
+    jti: str
+    claims: dict[str, Any]
+
+
+def authenticateUserToken(
+    token: str,
+    requestDeviceId: str,
+    db,
+) -> UserAuthContext:
+    """校验新用户 Access Token、设备绑对和 jti 吊销状态。"""
+    try:
+        payload = decodeAccessToken(token)
+    except pyjwt.ExpiredSignatureError as error:
+        raise ApiError("UNAUTHORIZED", "登录已过期", httpStatus=401) from error
+    except pyjwt.InvalidTokenError as error:
+        raise ApiError("UNAUTHORIZED", "无效登录凭证", httpStatus=401) from error
+
+    claimedDeviceId = payload.get("device_id")
+    if not requestDeviceId:
+        raise ApiError("UNAUTHORIZED", "缺少 X-Device-Id", httpStatus=401)
+    if not claimedDeviceId or requestDeviceId != claimedDeviceId:
+        raise ApiError("UNAUTHORIZED", "设备与登录凭证不匹配", httpStatus=401)
+
+    subject = payload.get("sub")
+    jti = payload.get("jti")
+    if not isinstance(subject, str) or not subject.isdecimal() or not jti:
+        raise ApiError("UNAUTHORIZED", "登录凭证 claims 不完整", httpStatus=401)
+    if db.get(RevokedToken, jti) is not None:
+        raise ApiError("TOKEN_REVOKED", httpStatus=401)
+
+    return UserAuthContext(
+        userId=int(subject),
+        deviceId=claimedDeviceId,
+        tier=str(payload.get("tier", "free")),
+        jti=str(jti),
+        claims=payload,
+    )
+
+
+def requireUser(func):
+    """P0-A 用户鉴权：Bearer + X-Device-Id + jti blacklist。"""
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        auth = request.headers.get("Authorization", "")
+        if not auth.startswith("Bearer "):
+            raise ApiError("UNAUTHORIZED", "缺少 Authorization 头", httpStatus=401)
+        token = auth[len("Bearer ") :].strip()
+        with getDb() as db:
+            context = authenticateUserToken(
+                token,
+                request.headers.get("X-Device-Id", "").strip(),
+                db,
+            )
+        g.userId = context.userId
+        g.deviceId = context.deviceId
+        g.tier = context.tier
+        g.jti = context.jti
+        g.authClaims = context.claims
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
+require_user = requireUser
 
 
 def _naiveUtcToEpoch(dt) -> int:
@@ -38,7 +111,7 @@ def requireAuth(func):
         auth = request.headers.get("Authorization", "")
         if not auth.startswith("Bearer "):
             raise ApiError("UNAUTHORIZED", "缺少 Authorization 头", httpStatus=401)
-        token = auth[len("Bearer "):].strip()
+        token = auth[len("Bearer ") :].strip()
         try:
             payload = decodeAccessToken(token)
         except pyjwt.ExpiredSignatureError as e:
@@ -118,11 +191,7 @@ def requireAdminCookie(func):
                 # DB 存的是 naive UTC,必须显式补 UTC tzinfo 后再 .timestamp(),
                 # 否则会按进程本地时区解释,容器/Windows 跨时区会出现"cookie 永远失效"
                 # 甚至负 epoch → OverflowError / OSError → 500 INTERNAL_ERROR。
-                if (
-                    pwdResetAt is not None
-                    and cookieTs is not None
-                    and int(cookieTs) < _naiveUtcToEpoch(pwdResetAt)
-                ):
+                if pwdResetAt is not None and cookieTs is not None and int(cookieTs) < _naiveUtcToEpoch(pwdResetAt):
                     raise ApiError("ADMIN_LOGIN_REQUIRED", httpStatus=401)
                 # locked 状态拒绝访问
                 if row.status == "locked":
@@ -166,6 +235,10 @@ def getClientIp() -> str | None:
 
 
 __all__ = [
+    "UserAuthContext",
+    "authenticateUserToken",
+    "requireUser",
+    "require_user",
     "requireAuth",
     "requireAdmin",
     "requireAdminCookie",

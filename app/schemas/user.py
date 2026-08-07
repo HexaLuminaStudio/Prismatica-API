@@ -1,9 +1,21 @@
 """用户/账单 Pydantic 模型 — 对齐 PRD §5.3。"""
+
 from __future__ import annotations
 
 from datetime import datetime
 
 from pydantic import BaseModel
+
+
+class CurrentAccountOut(BaseModel):
+    userId: int
+    email: str
+    displayName: str
+    tier: str
+    status: str
+    balance: int
+    reserved: int
+    available: int
 
 
 class UserAccountOut(BaseModel):
@@ -45,4 +57,4 @@ class BillListResponse(BaseModel):
     nextCursor: str | None = None
 
 
-__all__ = ["UserAccountOut", "BillOut", "BillListResponse"]
+__all__ = ["CurrentAccountOut", "UserAccountOut", "BillOut", "BillListResponse"]

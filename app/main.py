@@ -18,6 +18,7 @@ from app.config import getSettings
 from app.db import initSchemaFromSql, pingDb
 from app.errors import registerErrorHandlers
 from app.middleware.access_log import installAccessLog
+from app.middleware.audit_log import installAuditContext
 from app.middleware.request_id import installRequestId
 
 # 限流(默认内存,生产建议 Redis)
@@ -72,6 +73,7 @@ def createApp() -> Flask:
     # 中间件
     installRequestId(app)
     installAccessLog(app)
+    installAuditContext(app)
 
     # CORS(跨域)
     # 允许的请求头:含 Authorization / Idempotency-Key / X-Device-Id / X-Client-Platform

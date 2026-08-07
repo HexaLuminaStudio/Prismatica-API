@@ -2,6 +2,10 @@
 
 status 状态机:pending → settled / refunded
 幂等键:UNIQUE idempotency_key(预占时设置)
+
+2026-08-07 改造:user_id 由 String(36) UUID 改为 BIGINT(对齐 P0-A 用户主键)。
+M3 之后所有新建数据都使用 BIGINT;旧的 CHAR(36) 历史账单仅 admin 后台读
+旧 SQLite 时才可能存在,迁移期保留兼容层。
 """
 from __future__ import annotations
 
@@ -22,14 +26,17 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db import Base
 
 
+BIGINT_ID = BigInteger().with_variant(Integer, "sqlite")
+
+
 class Bill(Base):
     """账单流水。"""
 
     __tablename__ = "bills"
 
     billId: Mapped[str] = mapped_column("bill_id", String(36), primary_key=True)
-    userId: Mapped[str] = mapped_column(
-        "user_id", String(36), ForeignKey("user_accounts.user_id"), nullable=False
+    userId: Mapped[int] = mapped_column(
+        "user_id", BIGINT_ID, ForeignKey("users.id"), nullable=False
     )
     actionType: Mapped[str] = mapped_column("action_type", String(32), nullable=False)
     actionDisplayName: Mapped[str] = mapped_column(
