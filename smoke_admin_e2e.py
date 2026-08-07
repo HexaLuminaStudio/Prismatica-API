@@ -212,5 +212,9 @@ def main() -> int:
     return 0
 
 
+def testAdminSmokeE2E() -> None:
+    assert main() == 0
+
+
 if __name__ == "__main__":
     sys.exit(main())

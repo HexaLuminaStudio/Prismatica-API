@@ -41,6 +41,7 @@ minversion = "8.0"
 testpaths = ["tests"]
 addopts = "-ra -q"
 pythonpath = ["."]
+python_files = ["test_*.py", "*_test.py", "smoke_admin_e2e.py"]
 
 [[tool.uv.index]]
 name = "tuna"
