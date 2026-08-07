@@ -130,23 +130,23 @@ def main() -> int:
 
     # 7) 准备一个测试用户
     import uuid
-    from datetime import datetime
 
     from app.models import UserAccount, UserBalance
+    from app.security.password import hashPassword
 
-    testUserId = f"u_smoke_{uuid.uuid4().hex[:8]}"
+    smokeEmail = f"smoke_{uuid.uuid4().hex[:8]}@example.com"
     with getDb() as db:
-        db.add(
-            UserAccount(
-                userId=testUserId,
-                displayName="smoke-user",
-                tier="beta",
-                status="active",
-                activatedAt=datetime.utcnow(),
-            )
+        user = UserAccount(
+            email=smokeEmail,
+            passwordHash=hashPassword("Smoke-Test-Pass-2026!"),
+            displayName="smoke-user",
+            tier="pro",
+            status="active",
         )
+        db.add(user)
         db.flush()
-        db.add(UserBalance(userId=testUserId, balance=0))
+        testUserId = str(user.id)
+        db.add(UserBalance(userId=user.id, balance=0))
     print(f"[7] seed test user {testUserId}")
 
     # 8) users 详情
@@ -171,12 +171,12 @@ def main() -> int:
     # 10) PATCH tier
     r = client.patch(
         f"/v1/admin/users/{testUserId}",
-        json={"tier": "beta_pro"},
+        json={"tier": "team"},
         headers={"Cookie": cookieHeader},
     )
     assert r.status_code == 200, r.data
     upd = _okEnvelop(r.get_json(), 200)
-    assert upd["tier"] == "beta_pro"
+    assert upd["tier"] == "team"
     print(f"[10] patch tier OK tier={upd['tier']}")
 
     # 11) revoke-sessions
@@ -197,7 +197,7 @@ def main() -> int:
             "count": 3,
             "grantedBalance": 50,
             "grantedDays": 7,
-            "tier": "trial",
+            "tier": "pro",
             "expireDays": 7,
         },
         headers={"Cookie": cookieHeader},

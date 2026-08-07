@@ -145,7 +145,8 @@ def listCodes(
         if cursorDt is not None:
             stmt = stmt.where(LicenseCode.issuedAt < cursorDt)
         if kind:
-            stmt = stmt.where(LicenseCode.codeKind == kind)
+            kindMap = {"invite": "INV", "trial": "TRY", "recharge": "RCH"}
+            stmt = stmt.where(LicenseCode.codeKind == kindMap.get(kind, kind))
         if status:
             stmt = stmt.where(LicenseCode.status == status)
         stmt = stmt.limit(limit + 1)
@@ -159,18 +160,22 @@ def listCodes(
         items = [
             {
                 "codeHash": r.codeHash,
-                "codeKind": r.codeKind,
-                "status": r.status,
-                "grantedBalance": r.grantedBalance,
-                "grantedDays": r.grantedDays,
-                "tier": r.tier,
+                "codeKind": {"INV": "invite", "TRY": "trial", "RCH": "recharge"}.get(r.codeKind, r.codeKind),
+                "status": "consumed" if r.status == "exhausted" else r.status,
+                "grantedBalance": r.monthlyQuota if r.codeKind in {"INV", "TRY"} else None,
+                "grantedDays": (
+                    (r.periodMonths * 30 if r.periodMonths else None)
+                    if r.codeKind == "INV"
+                    else r.trialDays
+                ),
+                "tier": r.planCode if r.codeKind == "INV" else ("pro" if r.codeKind == "TRY" else None),
                 "amount": r.amount,
-                "issuedBy": r.issuedBy,
+                "issuedBy": r.issuedBy or "admin",
                 "issuedAt": r.issuedAt,
-                "expireAt": r.expireAt,
-                "consumedAt": r.consumedAt,
-                "consumedByUserId": r.consumedByUserId,
-                "consumedIp": r.consumedIp,
+                "expireAt": r.expiresAt,
+                "consumedAt": None,
+                "consumedByUserId": None,
+                "consumedIp": None,
             }
             for r in rows
         ]
@@ -183,7 +188,7 @@ def lookupCode(rawCode: str) -> dict[str, Any]:
         raise ApiError("BAD_REQUEST", "缺少 code 参数")
     codeHash = hashCode(rawCode)
     with getDb() as db:
-        row = db.get(LicenseCode, codeHash)
+        row = db.execute(select(LicenseCode).where(LicenseCode.codeHash == codeHash)).scalar_one_or_none()
         if row is None:
             return {
                 "codeKind": "unknown",
@@ -194,11 +199,11 @@ def lookupCode(rawCode: str) -> dict[str, Any]:
                 "rechargeAmount": None,
             }
         return {
-            "codeKind": row.codeKind,
+            "codeKind": {"INV": "invite", "TRY": "trial", "RCH": "recharge"}.get(row.codeKind, row.codeKind),
             "codeHash": row.codeHash,
-            "status": row.status,
-            "consumedAt": row.consumedAt,
-            "consumedByUserId": row.consumedByUserId,
+            "status": "consumed" if row.status == "exhausted" else row.status,
+            "consumedAt": None,
+            "consumedByUserId": None,
             "rechargeAmount": int(row.amount) if row.amount is not None else None,
         }
 
@@ -206,7 +211,7 @@ def lookupCode(rawCode: str) -> dict[str, Any]:
 def revokeCode(codeHash: str) -> dict[str, Any]:
     """撤销某凭证(active → revoked)。"""
     with getDb() as db:
-        row = db.get(LicenseCode, codeHash)
+        row = db.execute(select(LicenseCode).where(LicenseCode.codeHash == codeHash)).scalar_one_or_none()
         if row is None:
             raise ApiError("NOT_FOUND", "凭证不存在")
         if row.status == "consumed":

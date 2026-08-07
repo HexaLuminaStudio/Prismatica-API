@@ -31,9 +31,9 @@ def _toJsonable(value: Any) -> Any:
     """递归把 value 转为可 JSON 序列化的形式;不可序列化的子元素转 str。"""
     if isinstance(value, dict):
         return {k: _toJsonable(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list | tuple):
         return [_toJsonable(v) for v in value]
-    if isinstance(value, (str, int, float, bool, type(None))):
+    if isinstance(value, str | int | float | bool | type(None)):
         return value
     try:
         json.dumps(value, ensure_ascii=False)

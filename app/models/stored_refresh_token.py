@@ -36,10 +36,8 @@ class StoredRefreshToken(TokenBase):
     # 不写 tokenHash;新 identity_auth_service 路径用 sha256(raw) 写入。
     # M6 升级后改为 nullable=False,要求所有路径都计算 tokenHash。
     tokenHash: Mapped[str | None] = mapped_column("token_hash", String(64), nullable=True, unique=True)
-    # userId / deviceId 暂用 String(36) 兼容旧 auth_service 路径,
-    # M6 升级后切回 BIGINT,新增的 BIGINT device 关联走 user_devices.id 整型 FK。
-    userId: Mapped[str] = mapped_column("user_id", String(36), nullable=False)
-    deviceId: Mapped[str] = mapped_column("device_id", String(36), nullable=False)
+    userId: Mapped[int] = mapped_column("user_id", BIGINT_ID, nullable=False)
+    deviceId: Mapped[int] = mapped_column("device_id", BIGINT_ID, nullable=False)
     expiresAt: Mapped[datetime] = mapped_column("expires_at", DateTime, nullable=False)
     revokedAt: Mapped[datetime | None] = mapped_column("revoked_at", DateTime, nullable=True)
     revokeReason: Mapped[str | None] = mapped_column("revoke_reason", String(32), nullable=True)

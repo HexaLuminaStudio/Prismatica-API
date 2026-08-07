@@ -1,10 +1,4 @@
-"""Admin 凭证签发服务(2026-08-06 重构):
-
-- issueCodes(kind, count, ...) → list[CodeItem]
-    - 立即落库 license_codes(status='active')
-    - 仅本次响应返回明文 code(rawCodeSignature + 明文)
-    - signed payload 一次性 base64 编码(signed_code 兼容)
-"""
+"""Admin 兑换码签发服务。"""
 from __future__ import annotations
 
 import base64
@@ -18,16 +12,25 @@ from loguru import logger
 
 from app.db import getDb
 from app.errors import ApiError
-from app.models import LicenseCode, UserTier
+from app.models import LicenseCode
 from app.security.hmac import hashCode, signPayload
 from app.services.admin_audit_service import recordAudit
 
+KIND_MAP = {"invite": "INV", "trial": "TRY", "recharge": "RCH", "INV": "INV", "TRY": "TRY", "RCH": "RCH"}
+DISPLAY_KIND_MAP = {"INV": "invite", "TRY": "trial", "RCH": "recharge"}
+
+
+def _normalizeKind(kind: str) -> str:
+    """转换兑换码类型。"""
+    normalized = KIND_MAP.get(kind)
+    if normalized is None:
+        raise ApiError("BAD_REQUEST", "kind 必须为 invite/trial/recharge 或 INV/TRY/RCH")
+    return normalized
+
 
 def _genCodeBody(prefix: str) -> str:
-    """形如 INV-AB12-CD34-EF56-GH78 的码体(排除 0/O/1/I/L)。"""
-    alphabet = "".join(
-        c for c in (string.ascii_uppercase + string.digits) if c not in "0O1IL"
-    )
+    """生成兑换码明文。"""
+    alphabet = "".join(c for c in (string.ascii_uppercase + string.digits) if c not in "0O1IL")
     parts = ["".join(secrets.choice(alphabet) for _ in range(4)) for _ in range(4)]
     return f"{prefix}-" + "-".join(parts)
 
@@ -39,42 +42,23 @@ def _buildSignedPayload(
     grantedDays: int,
     tier: str,
     amount: int,
-    expireAt: datetime,
+    expiresAt: datetime,
 ) -> str:
-    """构造 signed payload 并返回 base64(json+sig)。
-
-    与客户端 signed_code.py 兼容:`base64(JSON(payload + signature))`。
-    """
-    base: dict[str, Any] = {
+    """构造 signed payload。"""
+    payload: dict[str, Any] = {
         "code": codeBody,
-        "expireAt": expireAt.isoformat(),
+        "expireAt": expiresAt.isoformat(),
         "issuedAt": datetime.now(UTC).replace(tzinfo=None).isoformat(),
         "version": 1,
     }
-    if kind == "invite":
-        base.update(
-            {
-                "maxUses": 1,
-                "grantedBalance": grantedBalance,
-                "grantedDays": grantedDays,
-                "tier": tier,
-            }
-        )
-    elif kind == "trial":
-        base.update(
-            {
-                "maxUses": 1,
-                "grantedBalance": grantedBalance,
-                "grantedDays": grantedDays,
-                "tier": UserTier.TRIAL.value,
-            }
-        )
-    elif kind == "recharge":
-        base.update({"amount": amount, "note": "admin issued"})
-    base["signature"] = signPayload(base)
-    return base64.b64encode(
-        json.dumps(base, ensure_ascii=False).encode("utf-8")
-    ).decode("ascii")
+    if kind == "INV":
+        payload.update({"maxUses": 1, "grantedBalance": grantedBalance, "grantedDays": grantedDays, "tier": tier})
+    elif kind == "TRY":
+        payload.update({"maxUses": 1, "grantedBalance": grantedBalance, "grantedDays": grantedDays, "tier": "pro"})
+    elif kind == "RCH":
+        payload.update({"amount": amount, "note": "admin issued"})
+    payload["signature"] = signPayload(payload)
+    return base64.b64encode(json.dumps(payload, ensure_ascii=False).encode("utf-8")).decode("ascii")
 
 
 def issueCodes(
@@ -82,59 +66,59 @@ def issueCodes(
     count: int,
     grantedBalance: int = 100,
     grantedDays: int = 30,
-    tier: str = "beta",
+    tier: str = "pro",
     amount: int = 0,
     expireDays: int = 14,
     issuedBy: str = "admin",
 ) -> list[dict[str, Any]]:
-    """批量签发凭证(同时持久化到 license_codes 表)。"""
-    if kind not in ("invite", "trial", "recharge"):
-        raise ApiError("BAD_REQUEST", "kind 必须为 invite/trial/recharge")
+    """批量签发兑换码。"""
+    codeKind = _normalizeKind(kind)
     if count < 1 or count > 1000:
         raise ApiError("BAD_REQUEST", "count 必须在 1~1000 之间")
-    if kind == "recharge" and amount <= 0:
+    if codeKind == "RCH" and amount <= 0:
         raise ApiError("BAD_REQUEST", "充值码必须指定 amount > 0")
+    if tier not in {"free", "pro", "team"}:
+        raise ApiError("BAD_REQUEST", "tier 必须为 free/pro/team 之一")
 
-    prefixMap = {"invite": "INV", "trial": "TRY", "recharge": "RCH"}
-    expireAt = datetime.now(UTC).replace(tzinfo=None) + timedelta(days=expireDays)
-
+    expiresAt = datetime.now(UTC).replace(tzinfo=None) + timedelta(days=expireDays)
     items: list[dict[str, Any]] = []
     with getDb() as db:
         for _ in range(count):
-            codeBody = _genCodeBody(prefixMap[kind])
+            codeBody = _genCodeBody(codeKind)
             codeHash = hashCode(codeBody)
-            signedRaw = _buildSignedPayload(
-                codeBody, kind, grantedBalance, grantedDays, tier, amount, expireAt
-            )
+            signedRaw = _buildSignedPayload(codeBody, codeKind, grantedBalance, grantedDays, tier, amount, expiresAt)
             row = LicenseCode(
                 codeHash=codeHash,
-                codeKind=kind,
+                codeKind=codeKind,
                 status="active",
-                grantedBalance=grantedBalance if kind in ("invite", "trial") else None,
-                grantedDays=grantedDays if kind in ("invite", "trial") else None,
-                tier=tier if kind in ("invite", "trial") else None,
-                amount=amount if kind == "recharge" else None,
-                issuedBy=issuedBy,
-                expireAt=expireAt,
-                rawCodeSignature=signedRaw,
+                planCode=tier if codeKind == "INV" else None,
+                periodMonths=max(1, grantedDays // 30) if codeKind == "INV" else None,
+                trialDays=grantedDays if codeKind == "TRY" else None,
+                monthlyQuota=grantedBalance if codeKind in {"INV", "TRY"} else None,
+                amount=amount if codeKind == "RCH" else None,
+                maxUses=1,
+                usedCount=0,
+                issuedBy=None,
+                note="admin issued",
+                expiresAt=expiresAt,
             )
             db.add(row)
-            db.flush()  # 留 audit_id 之类的可读字段(本表无,但保 flush 统一)
-
+            db.flush()
+            displayKind = DISPLAY_KIND_MAP[codeKind]
             items.append(
                 {
                     "codeHash": codeHash,
-                    "code": codeBody,  # 明文,仅本次签发返回
-                    "signedPayload": signedRaw,  # base64(json+sig),供前端用
-                    "codeKind": kind,
+                    "code": codeBody,
+                    "signedPayload": signedRaw,
+                    "codeKind": displayKind,
                     "status": "active",
-                    "grantedBalance": grantedBalance if kind in ("invite", "trial") else None,
-                    "grantedDays": grantedDays if kind in ("invite", "trial") else None,
-                    "tier": tier if kind in ("invite", "trial") else None,
-                    "amount": amount if kind == "recharge" else None,
+                    "grantedBalance": grantedBalance if codeKind in {"INV", "TRY"} else None,
+                    "grantedDays": grantedDays if codeKind in {"INV", "TRY"} else None,
+                    "tier": tier if codeKind == "INV" else ("pro" if codeKind == "TRY" else None),
+                    "amount": amount if codeKind == "RCH" else None,
                     "issuedBy": issuedBy,
                     "issuedAt": row.issuedAt,
-                    "expireAt": expireAt,
+                    "expireAt": expiresAt,
                 }
             )
         db.commit()
@@ -143,14 +127,14 @@ def issueCodes(
         actor=issuedBy,
         action="admin.issue_codes",
         details={
-            "kind": kind,
+            "kind": codeKind,
             "count": count,
             "grantedBalance": grantedBalance,
             "grantedDays": grantedDays,
             "amount": amount,
-        },
+        }
     )
-    logger.info(f"[AdminCode] issue kind={kind} count={count}")
+    logger.info(f"[AdminCode] issue kind={codeKind} count={count}")
     return items
 
 

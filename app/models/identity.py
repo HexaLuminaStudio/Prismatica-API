@@ -38,17 +38,8 @@ class User(IdentityBase):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(BIGINT_ID, primary_key=True, autoincrement=True)
-    # 2026-08-07:旧兑换登录路径(auth_service.py)用 userId=uuid4 字符串
-    # 构造 User。这里把 userId 作为 String(36) 冗余字段保留,M6 之后
-    # 旧路径下线时可删除。P0-A 新代码一律用 id (BIGINT)。
-    userId: Mapped[str | None] = mapped_column("user_id", String(36), nullable=True, unique=True)
-    # 2026-08-07:旧 redeem 路径(auth_service.redeemCode)创建 User 时
-    # 不写 email / passwordHash,只设 userId + displayName + tier + status。
-    # 这些字段在 M3 之前是「设备绑定的匿名账号」,现在共享同一张 users 表,
-    # 必须让 email / passwordHash nullable 以兼容。M3 之后所有新用户都是
-    # 邮箱密码账号,这两列非空。
-    email: Mapped[str | None] = mapped_column(String(254), nullable=True, unique=True)
-    passwordHash: Mapped[str | None] = mapped_column("password_hash", String(255), nullable=True)
+    email: Mapped[str] = mapped_column(String(254), nullable=False, unique=True)
+    passwordHash: Mapped[str] = mapped_column("password_hash", String(255), nullable=False)
     displayName: Mapped[str] = mapped_column("display_name", String(64), nullable=False, default="")
     tier: Mapped[str] = mapped_column(String(16), nullable=False, default="free")
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
@@ -56,8 +47,6 @@ class User(IdentityBase):
     lockedUntil: Mapped[datetime | None] = mapped_column("locked_until", DateTime, nullable=True)
     emailVerified: Mapped[bool] = mapped_column("email_verified", nullable=False, default=False)
     deletedAt: Mapped[datetime | None] = mapped_column("deleted_at", DateTime, nullable=True)
-    activatedAt: Mapped[datetime | None] = mapped_column("activated_at", DateTime, nullable=True)
-    expireAt: Mapped[datetime | None] = mapped_column("expire_at", DateTime, nullable=True)
     createdAt: Mapped[datetime] = mapped_column(
         "created_at", DateTime, nullable=False, server_default=func.current_timestamp()
     )
@@ -74,25 +63,13 @@ class User(IdentityBase):
         Index("idx_users_created_at", "created_at"),
     )
 
-    # ------------------------------------------------------------------
-    # 字段别名:旧兑换登录路径(auth_service.py / admin_user_service.py)
-    # 仍以 userId=... 构造 User,这里把它写到 userId(String) 字段。
-    # ------------------------------------------------------------------
-    def __init__(self, *args, **kwargs):
-        # 旧代码传 userId=uuid4 时,写到 userId(String),不让它污染 id
-        if "userId" in kwargs and "id" not in kwargs:
-            kwargs["userId"] = kwargs.pop("userId")
-        super().__init__(*args, **kwargs)
-
 
 class IdentityDevice(IdentityBase):
     __tablename__ = "user_devices"
 
     id: Mapped[int] = mapped_column(BIGINT_ID, primary_key=True, autoincrement=True)
-    # 2026-08-07:userId 暂用 String(36) 兼容旧 redeem 路径
-    # (auth_service._ensureDevice 直接传 deviceId=str),M6 升级后切回 BIGINT。
-    userId: Mapped[str] = mapped_column(
-        "user_id", String(36), nullable=False
+    userId: Mapped[int] = mapped_column(
+        "user_id", BIGINT_ID, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     deviceId: Mapped[str] = mapped_column("device_id", String(64), nullable=False)
     deviceName: Mapped[str] = mapped_column("device_name", String(128), nullable=False, default="")
@@ -119,11 +96,8 @@ class IdentityDevice(IdentityBase):
 class IdentityBalance(IdentityBase):
     __tablename__ = "user_balance"
 
-    # 2026-08-07:旧 redeem 路径写入 user_balance 时 user_id 是 uuid 字符串;
-    # 新 P0-A 路径是 BIGINT。这里保留 String(36) 主键以便旧路径继续可用;
-    # 新代码 M6 升级后会切回 BIGINT。
-    userId: Mapped[str] = mapped_column(
-        "user_id", String(36), primary_key=True
+    userId: Mapped[int] = mapped_column(
+        "user_id", BIGINT_ID, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
     balance: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     reserved: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
