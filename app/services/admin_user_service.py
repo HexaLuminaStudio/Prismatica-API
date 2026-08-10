@@ -12,7 +12,15 @@ from sqlalchemy.exc import IntegrityError
 
 from app.db import getDb
 from app.errors import ApiError
-from app.models import BalanceLedger, RefreshToken, StoredRefreshToken, Subscription, UserAccount, UserBalance, UserDevice
+from app.models import (
+    BalanceLedger,
+    RefreshToken,
+    StoredRefreshToken,
+    Subscription,
+    UserAccount,
+    UserBalance,
+    UserDevice,
+)
 from app.security.password import hashPassword
 from app.services.admin_audit_service import recordAudit
 from app.services.identity_auth_service import normalizeEmail
@@ -105,7 +113,9 @@ def _deviceStats(db, userId: int) -> tuple[int, datetime | None]:
         ).scalar_one()
         or 0
     )
-    lastSeenAt = db.execute(select(saFunc.max(UserDevice.lastSeenAt)).where(UserDevice.userId == userId)).scalar_one_or_none()
+    lastSeenAt = db.execute(
+        select(saFunc.max(UserDevice.lastSeenAt)).where(UserDevice.userId == userId)
+    ).scalar_one_or_none()
     return deviceCount, lastSeenAt
 
 
@@ -193,7 +203,13 @@ def getUserDetail(userId: str) -> dict[str, Any]:
         return item
 
 
-def createUser(email: str, password: str, displayName: str = "", tier: str = "free", status: str = "active") -> dict[str, Any]:
+def createUser(
+    email: str,
+    password: str,
+    displayName: str = "",
+    tier: str = "free",
+    status: str = "active",
+) -> dict[str, Any]:
     normalizedTier = _ensureTier(tier) or "free"
     normalizedStatus = _normalizeStatus(status) or "active"
     normalizedEmail = normalizeEmail(email)
@@ -262,7 +278,12 @@ def updateUser(
             raise ApiError("EMAIL_ALREADY_USED", "邮箱已被使用", httpStatus=409) from e
         newValues = {"tier": user.tier, "status": user.status, "email": user.email, "displayName": user.displayName}
 
-    recordAudit(actor="admin", action="admin.update_user", targetUser=str(numericUserId), details={"old": oldValues, "new": newValues})
+    recordAudit(
+        actor="admin",
+        action="admin.update_user",
+        targetUser=str(numericUserId),
+        details={"old": oldValues, "new": newValues},
+    )
     return {"userId": str(numericUserId), **newValues}
 
 
@@ -305,7 +326,12 @@ def grantBalance(userId: str, amount: int, note: str = "") -> dict[str, Any]:
         )
         db.commit()
 
-    recordAudit(actor="admin", action="admin.grant_balance", targetUser=str(numericUserId), details={"amount": amount, "note": note})
+    recordAudit(
+        actor="admin",
+        action="admin.grant_balance",
+        targetUser=str(numericUserId),
+        details={"amount": amount, "note": note},
+    )
     return {"userId": str(numericUserId), "newBalance": afterBalance}
 
 
@@ -326,7 +352,12 @@ def revokeAllSessions(userId: str, reason: str = "") -> dict[str, Any]:
             revoked += 1
         db.commit()
 
-    recordAudit(actor="admin", action="admin.revoke_sessions", targetUser=str(numericUserId), details={"revokedCount": revoked, "reason": reason})
+    recordAudit(
+        actor="admin",
+        action="admin.revoke_sessions",
+        targetUser=str(numericUserId),
+        details={"revokedCount": revoked, "reason": reason},
+    )
     return {"userId": str(numericUserId), "revokedCount": revoked}
 
 
@@ -358,11 +389,19 @@ def deleteUser(userId: str, confirm: str = "") -> dict[str, Any]:
             raise ApiError("NOT_FOUND", "用户不存在")
         user.status = "deleted"
         user.deletedAt = now
-        devices = db.execute(select(UserDevice).where(UserDevice.userId == numericUserId, UserDevice.status == "active")).scalars().all()
+        devices = db.execute(
+            select(UserDevice).where(
+                UserDevice.userId == numericUserId, UserDevice.status == "active"
+            )
+        ).scalars().all()
         for device in devices:
             device.status = "revoked"
             device.revokedAt = now
-        tokens = db.execute(select(RefreshToken).where(RefreshToken.userId == numericUserId, RefreshToken.revokedAt.is_(None))).scalars().all()
+        tokens = db.execute(
+            select(RefreshToken).where(
+                RefreshToken.userId == numericUserId, RefreshToken.revokedAt.is_(None)
+            )
+        ).scalars().all()
         for token in tokens:
             token.revokedAt = now
             if hasattr(token, "revokeReason"):
@@ -379,7 +418,10 @@ def listUserSubscriptions(userId: str) -> list[dict[str, Any]]:
         if db.get(UserAccount, numericUserId) is None:
             raise ApiError("NOT_FOUND", "用户不存在")
         items = db.execute(
-            select(Subscription).where(Subscription.userId == numericUserId).order_by(Subscription.createdAt.desc()).limit(100)
+            select(Subscription)
+            .where(Subscription.userId == numericUserId)
+            .order_by(Subscription.createdAt.desc())
+            .limit(100)
         ).scalars().all()
         return [
             {
@@ -401,7 +443,12 @@ def listUserDevices(userId: str) -> list[dict[str, Any]]:
     with getDb() as db:
         if db.get(UserAccount, numericUserId) is None:
             raise ApiError("NOT_FOUND", "用户不存在")
-        items = db.execute(select(UserDevice).where(UserDevice.userId == numericUserId).order_by(UserDevice.lastSeenAt.desc()).limit(100)).scalars().all()
+        items = db.execute(
+            select(UserDevice)
+            .where(UserDevice.userId == numericUserId)
+            .order_by(UserDevice.lastSeenAt.desc())
+            .limit(100)
+        ).scalars().all()
         return [
             {
                 "deviceId": item.deviceId,
@@ -420,21 +467,31 @@ def revokeUserDevice(userId: str, deviceId: str) -> dict[str, Any]:
     now = _now()
     with getDb() as db:
         device = db.execute(
-            select(UserDevice).where(UserDevice.userId == numericUserId, UserDevice.deviceId == deviceId).with_for_update()
+            select(UserDevice)
+            .where(UserDevice.userId == numericUserId, UserDevice.deviceId == deviceId)
+            .with_for_update()
         ).scalar_one_or_none()
         if device is None:
             raise ApiError("NOT_FOUND", "设备不存在")
         device.status = "revoked"
         device.revokedAt = now
         tokens = db.execute(
-            select(StoredRefreshToken).where(StoredRefreshToken.deviceId == device.id, StoredRefreshToken.revokedAt.is_(None))
+            select(StoredRefreshToken)
+            .where(
+                StoredRefreshToken.deviceId == device.id, StoredRefreshToken.revokedAt.is_(None)
+            )
         ).scalars().all()
         for token in tokens:
             token.revokedAt = now
             token.revokeReason = "admin_revoke_device"
         db.commit()
 
-    recordAudit(actor="admin", action="admin.revoke_device", targetUser=str(numericUserId), details={"deviceId": deviceId})
+    recordAudit(
+        actor="admin",
+        action="admin.revoke_device",
+        targetUser=str(numericUserId),
+        details={"deviceId": deviceId},
+    )
     return {"deviceId": deviceId, "status": "revoked"}
 
 
@@ -445,7 +502,10 @@ def listUserLedger(userId: str, limit: int = 20) -> list[dict[str, Any]]:
         if db.get(UserAccount, numericUserId) is None:
             raise ApiError("NOT_FOUND", "用户不存在")
         items = db.execute(
-            select(BalanceLedger).where(BalanceLedger.userId == numericUserId).order_by(BalanceLedger.createdAt.desc()).limit(limit)
+            select(BalanceLedger)
+            .where(BalanceLedger.userId == numericUserId)
+            .order_by(BalanceLedger.createdAt.desc())
+            .limit(limit)
         ).scalars().all()
         return [
             {
@@ -476,8 +536,13 @@ def batchUsers(action: str, userIds: list[str], status: str | None = None) -> di
         except ApiError as e:
             results.append({"userId": rawUserId, "error": e.code, "message": e.message})
     successCount = sum(1 for item in results if "error" not in item)
-    recordAudit(actor="admin", action="admin.batch_users", details={"action": action, "successCount": successCount, "total": len(userIds)})
-    return {"action": action, "successCount": successCount, "failedCount": len(userIds) - successCount, "items": results}
+    recordAudit(
+        actor="admin",
+        action="admin.batch_users",
+        details={"action": action, "successCount": successCount, "total": len(userIds)},
+    )
+    failedCount = len(userIds) - successCount
+    return {"action": action, "successCount": successCount, "failedCount": failedCount, "items": results}
 
 
 __all__ = [

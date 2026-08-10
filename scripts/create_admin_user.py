@@ -27,7 +27,6 @@ from app.db import getDb  # noqa: E402
 from app.models import AdminUser  # noqa: E402
 from app.security.password import hashPassword  # noqa: E402
 
-
 PLAIN_PASSWORD = "123456aaaa"  # 123456 + 4 位字母,满足项目 P0-A 密码策略
 USERNAME = "admin"
 
