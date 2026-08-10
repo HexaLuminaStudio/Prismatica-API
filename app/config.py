@@ -15,7 +15,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
@@ -133,6 +133,36 @@ class Settings(BaseSettings):
     hskLocalCorpusVersion: str = Field(
         default="1",
         alias="HSK_LOCAL_CORPUS_VERSION",
+    )
+
+    # ---- 官方语料账号（仅后端持有，禁止写入桌面客户端）----
+    officialHskUsername: str = Field(
+        default="",
+        alias="OFFICIAL_HSK_USERNAME",
+    )
+    officialHskPassword: SecretStr = Field(
+        default=SecretStr(""),
+        alias="OFFICIAL_HSK_PASSWORD",
+    )
+    officialGlobalUsername: str = Field(
+        default="",
+        alias="OFFICIAL_GLOBAL_USERNAME",
+    )
+    officialGlobalPassword: SecretStr = Field(
+        default=SecretStr(""),
+        alias="OFFICIAL_GLOBAL_PASSWORD",
+    )
+    officialTokenConnectTimeoutSec: int = Field(
+        default=10,
+        ge=1,
+        le=60,
+        alias="OFFICIAL_TOKEN_CONNECT_TIMEOUT_SEC",
+    )
+    officialTokenReadTimeoutSec: int = Field(
+        default=30,
+        ge=5,
+        le=120,
+        alias="OFFICIAL_TOKEN_READ_TIMEOUT_SEC",
     )
 
     # ---- Admin ----

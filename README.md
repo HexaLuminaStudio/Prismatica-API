@@ -89,6 +89,7 @@ deploy/
 | Billing | `POST /v1/billing/settle` | JWT | 结算(差额返还) |
 | Billing | `POST /v1/billing/refund` | JWT | 全额退款 |
 | 资源 | `POST /v1/resources/bootstrap` | JWT + Device + 有效订阅 | 签发短期数据库下载清单 |
+| 资源 | `POST /v1/resources/official-token` | `X-Device-Id`（10 次/小时/IP） | 后端官方账号代登录并返回 HSK / Global Token |
 | 资源 | `GET /v1/resources/download/{resourceKey}` | 短期资源票据 | 后端流式转发数据库文件 |
 | Admin | `POST /v1/admin/grant` | X-Admin-Token | 手动赠送余额 |
 | Admin | `POST /v1/admin/issue-codes` | X-Admin-Token | 批量签发凭证 |
@@ -153,6 +154,10 @@ pytest --cov=app --cov-fail-under=60
 
 `/v1/resources/bootstrap` 会实时校验账号、设备和有效订阅，下载票据默认 180 秒过期。
 桌面客户端只能看到 PrismaticaAPI 网关地址，不会收到真实源站 URL。第一阶段仍由后端代理现有源站；上线后还需把对象存储改为私有读取，才能同时关闭历史公开直链。
+
+首次启动引导的“使用官方账号”由 `/v1/resources/official-token` 提供。生产环境需要设置
+`OFFICIAL_HSK_USERNAME`、`OFFICIAL_HSK_PASSWORD`、`OFFICIAL_GLOBAL_USERNAME` 和
+`OFFICIAL_GLOBAL_PASSWORD`；真实值只保存在后端环境变量中，禁止写入桌面端或提交到仓库。
 
 资源下载权限授予所有未过期的 `active` 订阅。内置计划为 `trial`、`pro_monthly` 和 `team_monthly`；管理员可通过 `POST /v1/admin/users/{userId}/subscriptions` 为尚无有效订阅的用户开通其中一个计划。
 

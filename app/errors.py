@@ -82,6 +82,8 @@ _ERROR_HTTP: dict[str, int] = {
     "RESOURCE_TICKET_INVALID": 401,
     "RESOURCE_TICKET_EXPIRED": 401,
     "RESOURCE_UPSTREAM_UNAVAILABLE": 502,
+    "OFFICIAL_ACCOUNT_UNAVAILABLE": 503,
+    "OFFICIAL_TOKEN_UPSTREAM_UNAVAILABLE": 502,
 }
 
 _ERROR_MESSAGE_CN: dict[str, str] = {
@@ -129,6 +131,8 @@ _ERROR_MESSAGE_CN: dict[str, str] = {
     "RESOURCE_TICKET_INVALID": "资源下载凭证无效",
     "RESOURCE_TICKET_EXPIRED": "资源下载凭证已过期，请重新获取",
     "RESOURCE_UPSTREAM_UNAVAILABLE": "资源服务器暂时不可用",
+    "OFFICIAL_ACCOUNT_UNAVAILABLE": "官方账号暂时不可用，请稍后再试或使用自己的账号",
+    "OFFICIAL_TOKEN_UPSTREAM_UNAVAILABLE": "语料平台暂时无法连接，请稍后再试",
 }
 
 
