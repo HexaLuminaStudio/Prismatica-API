@@ -88,6 +88,8 @@ deploy/
 | Billing | `POST /v1/billing/preauth` | JWT + Idempotency-Key | 预占 + pending bill |
 | Billing | `POST /v1/billing/settle` | JWT | 结算(差额返还) |
 | Billing | `POST /v1/billing/refund` | JWT | 全额退款 |
+| 资源 | `POST /v1/resources/bootstrap` | JWT + Device + 有效订阅 | 签发短期数据库下载清单 |
+| 资源 | `GET /v1/resources/download/{resourceKey}` | 短期资源票据 | 后端流式转发数据库文件 |
 | Admin | `POST /v1/admin/grant` | X-Admin-Token | 手动赠送余额 |
 | Admin | `POST /v1/admin/issue-codes` | X-Admin-Token | 批量签发凭证 |
 | **Admin 后台 (2026-08-05 M2)** ||||
@@ -140,6 +142,17 @@ pytest --cov=app --cov-fail-under=60
 - `ADMIN_TOKEN`(运营端 X-Admin-Token,兼容 curl)
 - `ADMIN_COOKIE_SECRET`(管理后台 cookie HMAC 签名,至少 32 字节,与管理后台专用)
 - `DB_PASSWORD`
+
+受保护资源下载还必须配置：
+
+- `RESOURCE_TICKET_SECRET`：独立的随机签名密钥，不能与 JWT / License 密钥相同。
+- `RESOURCE_PUBLIC_BASE_URL`：客户端能够访问的 HTTPS API 根地址。
+- `HSK_CORPUS_SOURCE_URL` / `HSK_LOCAL_CORPUS_SOURCE_URL`：仅存在后端的真实源站地址。
+- `HSK_CORPUS_SHA256` / `HSK_LOCAL_CORPUS_SHA256`：正式文件 SHA-256。
+- `HSK_CORPUS_VERSION` / `HSK_LOCAL_CORPUS_VERSION`：更新文件时同步递增。
+
+`/v1/resources/bootstrap` 会实时校验账号、设备和有效订阅，下载票据默认 180 秒过期。
+桌面客户端只能看到 PrismaticaAPI 网关地址，不会收到真实源站 URL。第一阶段仍由后端代理现有源站；上线后还需把对象存储改为私有读取，才能同时关闭历史公开直链。
 
 ## 管理后台登录(2026-08-05 M2)
 

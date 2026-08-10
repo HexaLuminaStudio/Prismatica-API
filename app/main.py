@@ -94,6 +94,7 @@ def createApp() -> Flask:
             "X-Admin-Token",
             "X-Device-Id",
             "X-Client-Platform",
+            "X-Client-Version",
             "Idempotency-Key",
             "X-Request-Id",
             "Cookie",  # 2026-08-05 M2:Admin 后台 cookie 鉴权需要
@@ -122,6 +123,7 @@ def createApp() -> Flask:
     from app.routers.auth import bp as authBp
     from app.routers.billing import bp as billingBp
     from app.routers.public import bp as publicBp
+    from app.routers.resources import bp as resourcesBp
 
     app.register_blueprint(authBp)
     app.register_blueprint(accountBp)
@@ -135,6 +137,7 @@ def createApp() -> Flask:
     app.register_blueprint(adminMetricsBp)
     app.register_blueprint(adminAdminsBp)
     app.register_blueprint(publicBp)
+    app.register_blueprint(resourcesBp)
 
     # 错误处理
     registerErrorHandlers(app)

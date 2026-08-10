@@ -84,6 +84,57 @@ class Settings(BaseSettings):
     jwtAccessTtlSec: int = Field(default=3600, alias="JWT_ACCESS_TTL")
     jwtRefreshTtlSec: int = Field(default=2592000, alias="JWT_REFRESH_TTL")
 
+    # ---- 受保护资源下载 ----
+    resourceTicketSecret: str = Field(
+        default="DEV-RESOURCE-TICKET-SECRET-PLEASE-OVERRIDE-IN-PROD",
+        alias="RESOURCE_TICKET_SECRET",
+        description="短期资源下载票据签名密钥，必须与 JWT_SECRET 不同",
+    )
+    resourceTicketTtlSec: int = Field(
+        default=180,
+        ge=60,
+        le=900,
+        alias="RESOURCE_TICKET_TTL_SEC",
+    )
+    resourcePublicBaseUrl: str = Field(
+        default="",
+        alias="RESOURCE_PUBLIC_BASE_URL",
+        description="外部可访问的 API 根地址；留空时根据当前请求生成",
+    )
+    resourceUpstreamConnectTimeoutSec: int = Field(
+        default=10,
+        ge=1,
+        le=60,
+        alias="RESOURCE_UPSTREAM_CONNECT_TIMEOUT_SEC",
+    )
+    resourceUpstreamReadTimeoutSec: int = Field(
+        default=60,
+        ge=10,
+        le=600,
+        alias="RESOURCE_UPSTREAM_READ_TIMEOUT_SEC",
+    )
+    hskCorpusSourceUrl: str = Field(
+        default="https://prismatica.cn-zj1.rains3.com/hsk_corpus.db",
+        alias="HSK_CORPUS_SOURCE_URL",
+    )
+    hskCorpusSha256: str = Field(
+        default="a4aa0cdc635eeb8c4b5784ead9d61a0dede2d16945b731e378eb8aec33408a2c",
+        alias="HSK_CORPUS_SHA256",
+    )
+    hskCorpusVersion: str = Field(default="1", alias="HSK_CORPUS_VERSION")
+    hskLocalCorpusSourceUrl: str = Field(
+        default="https://prismatica.cn-zj1.rains3.com/hsk_corpus_local.db",
+        alias="HSK_LOCAL_CORPUS_SOURCE_URL",
+    )
+    hskLocalCorpusSha256: str = Field(
+        default="e7ffbc954b06d6b57992e4cccfc44b55f494214fcb61732aff32395d3c575e9a",
+        alias="HSK_LOCAL_CORPUS_SHA256",
+    )
+    hskLocalCorpusVersion: str = Field(
+        default="1",
+        alias="HSK_LOCAL_CORPUS_VERSION",
+    )
+
     # ---- Admin ----
     adminToken: str = Field(
         default="DEV-ADMIN-TOKEN-PLEASE-OVERRIDE-IN-PROD",
