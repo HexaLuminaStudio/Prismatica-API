@@ -60,6 +60,8 @@ HSK_LOCAL_CORPUS_KMS_WRAPPED_KEY=Es31fLS7tyOj3G5nWri8BmRxIoq3AqblzLVLcJb7CXJDxTm
    ```powershell
    uv run python -m scripts.export_resource_signing_public_key
    ```
+PRISMATICA_RESOURCE_MANIFEST_KEY_ID=local-dev
+PRISMATICA_RESOURCE_MANIFEST_PUBLIC_KEY_B64=MCowBQYDK2VwAyEAagna3D0hBwdK3kFR/TSN+MrPc/s33zXqGZWTmZJ3PTo=
 
 5. 把输出的 key ID 与 SPKI DER Base64 公钥写入 `PrismaticaUI/app/core/utils/resource_trust.py` 的 `TRUSTED_RESOURCE_MANIFEST_KEYS`，再构建生产客户端。公钥可以提交，私钥和 KMS 凭据不能提交。
 
