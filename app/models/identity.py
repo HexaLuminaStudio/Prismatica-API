@@ -82,21 +82,6 @@ class IdentityDevice(IdentityBase):
         "last_seen_at", DateTime, nullable=False, server_default=func.current_timestamp()
     )
     revokedAt: Mapped[datetime | None] = mapped_column("revoked_at", DateTime, nullable=True)
-    resourceEncryptionPublicKey: Mapped[str | None] = mapped_column(
-        "resource_encryption_public_key",
-        String(64),
-        nullable=True,
-    )
-    resourceSigningPublicKey: Mapped[str | None] = mapped_column(
-        "resource_signing_public_key",
-        String(64),
-        nullable=True,
-    )
-    resourceKeyUpdatedAt: Mapped[datetime | None] = mapped_column(
-        "resource_key_updated_at",
-        DateTime,
-        nullable=True,
-    )
     createdAt: Mapped[datetime] = mapped_column(
         "created_at", DateTime, nullable=False, server_default=func.current_timestamp()
     )

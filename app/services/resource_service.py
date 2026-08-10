@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from base64 import b64decode
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from urllib.parse import quote, urlparse
@@ -16,20 +15,7 @@ from app.errors import ApiError
 from app.models.identity import IdentityDevice
 from app.models.identity import User as IdentityUser
 from app.models.subscription import Subscription
-from app.schemas.resources import (
-    DeviceResourceKeyRequest,
-    DeviceResourceKeyResponse,
-    ResourceBootstrapResponse,
-    ResourceManifestOut,
-    ResourceWrappedKeyOut,
-)
-from app.security.resource_crypto import (
-    decryptResourceDataKey,
-    deviceKeyFingerprint,
-    signResourceManifest,
-    verifyDeviceKeyProof,
-    wrapDataKeyForDevice,
-)
+from app.schemas.resources import ResourceManifestOut
 from app.security.resource_ticket import createResourceTicket
 
 
@@ -43,7 +29,6 @@ class ProtectedResource:
     sourceUrl: str
     sha256: str
     version: str
-    wrappedKey: str
 
 
 def getResourceCatalog(settings: Settings | None = None) -> dict[str, ProtectedResource]:
@@ -57,7 +42,6 @@ def getResourceCatalog(settings: Settings | None = None) -> dict[str, ProtectedR
             sourceUrl=currentSettings.hskCorpusSourceUrl.strip(),
             sha256=currentSettings.hskCorpusSha256.strip().lower(),
             version=currentSettings.hskCorpusVersion.strip(),
-            wrappedKey=currentSettings.hskCorpusWrappedKey.strip(),
         ),
         ProtectedResource(
             key="hskLocalCorpus",
@@ -66,7 +50,6 @@ def getResourceCatalog(settings: Settings | None = None) -> dict[str, ProtectedR
             sourceUrl=currentSettings.hskLocalCorpusSourceUrl.strip(),
             sha256=currentSettings.hskLocalCorpusSha256.strip().lower(),
             version=currentSettings.hskLocalCorpusVersion.strip(),
-            wrappedKey=currentSettings.hskLocalCorpusWrappedKey.strip(),
         ),
     )
     return {resource.key: resource for resource in resources}
@@ -93,66 +76,6 @@ def validateResourceConfiguration(resource: ProtectedResource) -> None:
             f"{resource.displayName}的版本尚未配置",
             httpStatus=503,
         )
-    try:
-        if len(b64decode(resource.wrappedKey, validate=True)) < 29:
-            raise ValueError("wrapped key is too short")
-    except (ValueError, TypeError) as error:
-        raise ApiError(
-            "RESOURCE_NOT_CONFIGURED",
-            f"{resource.displayName}的 KMS 封装密钥尚未配置",
-            httpStatus=503,
-        ) from error
-
-
-def registerDeviceResourceKey(
-    db: Session,
-    userId: int,
-    deviceId: str,
-    payload: DeviceResourceKeyRequest,
-) -> DeviceResourceKeyResponse:
-    """首次绑定设备资源公钥；已有密钥不可被静默替换。"""
-    device = db.execute(
-        select(IdentityDevice)
-        .where(
-            IdentityDevice.userId == userId,
-            IdentityDevice.deviceId == deviceId,
-            IdentityDevice.status == "active",
-        )
-        .with_for_update()
-    ).scalar_one_or_none()
-    if device is None:
-        raise ApiError("FORBIDDEN", "当前设备未授权或已被撤销", httpStatus=403)
-
-    verifyDeviceKeyProof(
-        deviceId,
-        payload.encryptionPublicKey,
-        payload.signingPublicKey,
-        payload.proof,
-    )
-    registered = device.resourceEncryptionPublicKey is None
-    if registered:
-        device.resourceEncryptionPublicKey = payload.encryptionPublicKey
-        device.resourceSigningPublicKey = payload.signingPublicKey
-        device.resourceKeyUpdatedAt = datetime.now(UTC).replace(tzinfo=None)
-        db.commit()
-    elif (
-        device.resourceEncryptionPublicKey != payload.encryptionPublicKey
-        or device.resourceSigningPublicKey != payload.signingPublicKey
-    ):
-        raise ApiError(
-            "RESOURCE_DEVICE_KEY_CONFLICT",
-            "该设备已绑定其他资源密钥，请先撤销设备后重新登录",
-            httpStatus=409,
-        )
-
-    return DeviceResourceKeyResponse(
-        deviceId=deviceId,
-        keyFingerprint=deviceKeyFingerprint(
-            payload.encryptionPublicKey,
-            payload.signingPublicKey,
-        ),
-        registered=registered,
-    )
 
 
 def authorizeResourceAccess(db: Session, userId: int, deviceId: str) -> Subscription:
@@ -195,20 +118,12 @@ def buildResourceManifests(
 ) -> list[ResourceManifestOut]:
     """授权通过后，为全部数据库签发短期下载地址。"""
     authorizeResourceAccess(db, userId, deviceId)
-    device = db.execute(
-        select(IdentityDevice).where(
-            IdentityDevice.userId == userId,
-            IdentityDevice.deviceId == deviceId,
-            IdentityDevice.status == "active",
-        )
-    ).scalar_one_or_none()
-    if device is None or not device.resourceEncryptionPublicKey:
-        raise ApiError("RESOURCE_DEVICE_KEY_REQUIRED", httpStatus=428)
     settings = getSettings()
     baseUrl = publicBaseUrl.strip().rstrip("/")
     if not baseUrl:
         raise ApiError("RESOURCE_NOT_CONFIGURED", "资源 API 公网地址不可用", httpStatus=503)
 
+    expiresAt = datetime.now(UTC) + timedelta(seconds=settings.resourceTicketTtlSec)
     manifests = []
     for resource in getResourceCatalog(settings).values():
         validateResourceConfiguration(resource)
@@ -222,20 +137,6 @@ def buildResourceManifests(
             f"{baseUrl}/v1/resources/download/{resource.key}"
             f"?ticket={quote(ticket, safe='')}"
         )
-        dataKey = decryptResourceDataKey(
-            resource.wrappedKey,
-            resource.key,
-            resource.version,
-            settings,
-        )
-        wrappedKey = wrapDataKeyForDevice(
-            dataKey,
-            device.resourceEncryptionPublicKey,
-            userId,
-            deviceId,
-            resource.key,
-            resource.version,
-        )
         manifests.append(
             ResourceManifestOut(
                 resourceKey=resource.key,
@@ -244,46 +145,10 @@ def buildResourceManifests(
                 version=resource.version,
                 sha256=resource.sha256,
                 downloadUrl=downloadUrl,
-                sqlCipherCompatibility=4,
-                wrappedDatabaseKey=ResourceWrappedKeyOut(
-                    algorithm=wrappedKey.algorithm,
-                    ephemeralPublicKey=wrappedKey.ephemeralPublicKey,
-                    nonce=wrappedKey.nonce,
-                    ciphertext=wrappedKey.ciphertext,
-                ),
+                expiresAt=expiresAt,
             )
         )
     return manifests
-
-
-def buildSignedResourceBootstrap(
-    db: Session,
-    userId: int,
-    deviceId: str,
-    publicBaseUrl: str,
-) -> ResourceBootstrapResponse:
-    """构建绑定设备、短期有效并经过签名的资源清单。"""
-    settings = getSettings()
-    issuedAt = datetime.now(UTC)
-    expiresAt = issuedAt + timedelta(seconds=settings.resourceTicketTtlSec)
-    manifests = buildResourceManifests(db, userId, deviceId, publicBaseUrl)
-    unsignedPayload = {
-        "manifestVersion": 1,
-        "issuedAt": issuedAt.isoformat().replace("+00:00", "Z"),
-        "expiresAt": expiresAt.isoformat().replace("+00:00", "Z"),
-        "deviceId": deviceId,
-        "resources": [manifest.model_dump(mode="json") for manifest in manifests],
-    }
-    signatureAlgorithm, signingKeyId, signature = signResourceManifest(
-        unsignedPayload,
-        settings,
-    )
-    return ResourceBootstrapResponse(
-        **unsignedPayload,
-        signatureAlgorithm=signatureAlgorithm,
-        signingKeyId=signingKeyId,
-        signature=signature,
-    )
 
 
 def getConfiguredResource(resourceKey: str) -> ProtectedResource:
@@ -298,10 +163,8 @@ def getConfiguredResource(resourceKey: str) -> ProtectedResource:
 __all__ = [
     "ProtectedResource",
     "authorizeResourceAccess",
-    "buildSignedResourceBootstrap",
     "buildResourceManifests",
     "getConfiguredResource",
     "getResourceCatalog",
-    "registerDeviceResourceKey",
     "validateResourceConfiguration",
 ]

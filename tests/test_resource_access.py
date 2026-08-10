@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import base64
-import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -11,8 +9,6 @@ from types import SimpleNamespace
 
 import jwt
 import pytest
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ed25519, x25519
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -22,13 +18,7 @@ from app.errors import ApiError
 from app.models.identity import IdentityDevice
 from app.models.identity import User as IdentityUser
 from app.models.subscription import Subscription
-from app.schemas.resources import DeviceResourceKeyRequest
 from app.security.password import hashPassword
-from app.security.resource_crypto import (
-    buildDeviceKeyProofMessage,
-    canonicalJson,
-    generateResourceDataKey,
-)
 from app.security.resource_ticket import (
     RESOURCE_TICKET_AUDIENCE,
     RESOURCE_TICKET_TYPE,
@@ -39,8 +29,6 @@ from app.services.resource_service import (
     ProtectedResource,
     authorizeResourceAccess,
     buildResourceManifests,
-    buildSignedResourceBootstrap,
-    registerDeviceResourceKey,
 )
 
 
@@ -67,26 +55,9 @@ def resourceSettings(monkeypatch):
         "test-resource-secret-at-least-32-bytes-long",
     )
     monkeypatch.setattr(settings, "resourceTicketTtlSec", 180)
-    monkeypatch.setattr(settings, "resourceKmsProvider", "local")
-    monkeypatch.setattr(settings, "resourceKmsLocalKey", base64.b64encode(os.urandom(32)).decode("ascii"))
-    monkeypatch.setattr(settings, "resourceManifestSignerProvider", "local")
-    signingKey = ed25519.Ed25519PrivateKey.generate()
-    signingKeyDer = signingKey.private_bytes(
-        serialization.Encoding.DER,
-        serialization.PrivateFormat.PKCS8,
-        serialization.NoEncryption(),
-    )
-    monkeypatch.setattr(
-        settings,
-        "resourceManifestSigningPrivateKey",
-        base64.b64encode(signingKeyDer).decode("ascii"),
-    )
-    monkeypatch.setattr(settings, "resourceManifestSigningKeyId", "test-signing-key")
     monkeypatch.setattr(settings, "hskCorpusSourceUrl", "https://origin.test/a.db")
     monkeypatch.setattr(settings, "hskCorpusSha256", "a" * 64)
     monkeypatch.setattr(settings, "hskCorpusVersion", "2026.08.1")
-    _, hskWrappedKey = generateResourceDataKey("hskCorpus", "2026.08.1", settings)
-    monkeypatch.setattr(settings, "hskCorpusWrappedKey", hskWrappedKey)
     monkeypatch.setattr(
         settings,
         "hskLocalCorpusSourceUrl",
@@ -94,9 +65,6 @@ def resourceSettings(monkeypatch):
     )
     monkeypatch.setattr(settings, "hskLocalCorpusSha256", "b" * 64)
     monkeypatch.setattr(settings, "hskLocalCorpusVersion", "2026.08.1")
-    _, localWrappedKey = generateResourceDataKey("hskLocalCorpus", "2026.08.1", settings)
-    monkeypatch.setattr(settings, "hskLocalCorpusWrappedKey", localWrappedKey)
-    return signingKey.public_key()
 
 
 def _createAuthorizedAccount(db: Session) -> tuple[IdentityUser, IdentityDevice]:
@@ -116,12 +84,6 @@ def _createAuthorizedAccount(db: Session) -> tuple[IdentityUser, IdentityDevice]
         deviceName="Test Device",
         platform="pytest",
         status="active",
-        resourceEncryptionPublicKey=base64.b64encode(
-            x25519.X25519PrivateKey.generate().public_key().public_bytes(
-                serialization.Encoding.Raw,
-                serialization.PublicFormat.Raw,
-            )
-        ).decode("ascii"),
         firstSeenAt=now,
         lastSeenAt=now,
     )
@@ -164,97 +126,6 @@ def testBuildResourceManifestsHidesOriginAndIssuesShortUrls(db: Session) -> None
     )
     assert all("origin.test" not in manifest.downloadUrl for manifest in manifests)
     assert all("ticket=" in manifest.downloadUrl for manifest in manifests)
-    assert all(manifest.sqlCipherCompatibility == 4 for manifest in manifests)
-    assert all(manifest.wrappedDatabaseKey.ciphertext for manifest in manifests)
-
-
-def testSignedBootstrapCoversDeviceAndEncryptedResources(
-    db: Session,
-    resourceSettings,
-) -> None:
-    user, device = _createAuthorizedAccount(db)
-
-    response = buildSignedResourceBootstrap(
-        db,
-        user.id,
-        device.deviceId,
-        "https://api.test",
-    )
-
-    unsignedPayload = {
-        "manifestVersion": response.manifestVersion,
-        "issuedAt": response.issuedAt,
-        "expiresAt": response.expiresAt,
-        "deviceId": response.deviceId,
-        "resources": [item.model_dump(mode="json") for item in response.resources],
-    }
-    resourceSettings.verify(
-        base64.b64decode(response.signature),
-        canonicalJson(unsignedPayload),
-    )
-    assert response.signingKeyId == "test-signing-key"
-    assert response.deviceId == device.deviceId
-
-
-def testDeviceResourceKeyRegistrationRequiresProofAndRejectsReplacement(
-    db: Session,
-) -> None:
-    user, device = _createAuthorizedAccount(db)
-    device.resourceEncryptionPublicKey = None
-    device.resourceSigningPublicKey = None
-    db.flush()
-    encryptionPrivateKey = x25519.X25519PrivateKey.generate()
-    signingPrivateKey = ed25519.Ed25519PrivateKey.generate()
-    encryptionPublicKey = base64.b64encode(
-        encryptionPrivateKey.public_key().public_bytes(
-            serialization.Encoding.Raw,
-            serialization.PublicFormat.Raw,
-        )
-    ).decode("ascii")
-    signingPublicKey = base64.b64encode(
-        signingPrivateKey.public_key().public_bytes(
-            serialization.Encoding.Raw,
-            serialization.PublicFormat.Raw,
-        )
-    ).decode("ascii")
-    proof = base64.b64encode(
-        signingPrivateKey.sign(
-            buildDeviceKeyProofMessage(
-                device.deviceId,
-                encryptionPublicKey,
-                signingPublicKey,
-            )
-        )
-    ).decode("ascii")
-    payload = DeviceResourceKeyRequest(
-        encryptionPublicKey=encryptionPublicKey,
-        signingPublicKey=signingPublicKey,
-        proof=proof,
-    )
-
-    first = registerDeviceResourceKey(db, user.id, device.deviceId, payload)
-    second = registerDeviceResourceKey(db, user.id, device.deviceId, payload)
-
-    assert first.registered is True
-    assert second.registered is False
-    conflictingEncryptionKey = base64.b64encode(os.urandom(32)).decode("ascii")
-    conflicting = payload.model_copy(
-        update={
-            "encryptionPublicKey": conflictingEncryptionKey,
-            "proof": base64.b64encode(
-                signingPrivateKey.sign(
-                    buildDeviceKeyProofMessage(
-                        device.deviceId,
-                        conflictingEncryptionKey,
-                        signingPublicKey,
-                    )
-                )
-            ).decode("ascii"),
-        }
-    )
-    with pytest.raises(ApiError) as captured:
-        registerDeviceResourceKey(db, user.id, device.deviceId, conflicting)
-    assert captured.value.code == "RESOURCE_DEVICE_KEY_CONFLICT"
 
 
 def testAuthorizeResourceAccessRequiresActiveSubscription(db: Session) -> None:
@@ -293,11 +164,8 @@ def testResourceTicketRejectsTamperingAndResourceReuse() -> None:
     assert claims.userId == 42
     assert claims.deviceId == "device-42"
 
-    header, payload, signature = ticket.split(".")
-    replacement = "A" if payload[10] != "A" else "B"
-    tamperedTicket = f"{header}.{payload[:10]}{replacement}{payload[11:]}.{signature}"
     with pytest.raises(ApiError) as tampered:
-        verifyResourceTicket(tamperedTicket, "hskCorpus", "2026.08.1")
+        verifyResourceTicket(f"{ticket[:-1]}x", "hskCorpus", "2026.08.1")
     assert tampered.value.code == "RESOURCE_TICKET_INVALID"
 
     with pytest.raises(ApiError) as wrongResource:
@@ -344,7 +212,6 @@ def testDownloadGatewayStreamsWithoutExposingOrigin(monkeypatch) -> None:
         sourceUrl="https://origin.test/private/hsk_corpus.db",
         sha256="a" * 64,
         version="1",
-        wrappedKey=base64.b64encode(b"x" * 32).decode("ascii"),
     )
 
     class FakeUpstreamResponse:
