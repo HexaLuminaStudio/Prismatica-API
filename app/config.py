@@ -113,26 +113,63 @@ class Settings(BaseSettings):
         le=600,
         alias="RESOURCE_UPSTREAM_READ_TIMEOUT_SEC",
     )
+    resourceKmsProvider: str = Field(
+        default="local",
+        alias="RESOURCE_KMS_PROVIDER",
+        description="资源数据密钥封装提供方：local 仅供开发，生产使用 aws",
+    )
+    resourceKmsKeyId: str = Field(default="", alias="RESOURCE_KMS_KEY_ID")
+    resourceKmsRegion: str = Field(default="", alias="RESOURCE_KMS_REGION")
+    resourceKmsEndpointUrl: str = Field(
+        default="",
+        alias="RESOURCE_KMS_ENDPOINT_URL",
+    )
+    resourceKmsLocalKey: str = Field(
+        default="",
+        alias="RESOURCE_KMS_LOCAL_KEY",
+        description="仅开发环境使用的 32 字节 Base64 主密钥",
+    )
+    resourceManifestSignerProvider: str = Field(
+        default="local",
+        alias="RESOURCE_MANIFEST_SIGNER_PROVIDER",
+    )
+    resourceManifestSigningKeyId: str = Field(
+        default="",
+        alias="RESOURCE_MANIFEST_SIGNING_KEY_ID",
+    )
+    resourceManifestSigningPrivateKey: str = Field(
+        default="",
+        alias="RESOURCE_MANIFEST_SIGNING_PRIVATE_KEY",
+        description="仅开发环境使用的 Ed25519 PKCS8 DER Base64 私钥",
+    )
     hskCorpusSourceUrl: str = Field(
-        default="https://prismatica.cn-zj1.rains3.com/hsk_corpus.db",
+        default="",
         alias="HSK_CORPUS_SOURCE_URL",
     )
     hskCorpusSha256: str = Field(
-        default="a4aa0cdc635eeb8c4b5784ead9d61a0dede2d16945b731e378eb8aec33408a2c",
+        default="",
         alias="HSK_CORPUS_SHA256",
     )
     hskCorpusVersion: str = Field(default="1", alias="HSK_CORPUS_VERSION")
+    hskCorpusWrappedKey: str = Field(
+        default="",
+        alias="HSK_CORPUS_KMS_WRAPPED_KEY",
+    )
     hskLocalCorpusSourceUrl: str = Field(
-        default="https://prismatica.cn-zj1.rains3.com/hsk_corpus_local.db",
+        default="",
         alias="HSK_LOCAL_CORPUS_SOURCE_URL",
     )
     hskLocalCorpusSha256: str = Field(
-        default="e7ffbc954b06d6b57992e4cccfc44b55f494214fcb61732aff32395d3c575e9a",
+        default="",
         alias="HSK_LOCAL_CORPUS_SHA256",
     )
     hskLocalCorpusVersion: str = Field(
         default="1",
         alias="HSK_LOCAL_CORPUS_VERSION",
+    )
+    hskLocalCorpusWrappedKey: str = Field(
+        default="",
+        alias="HSK_LOCAL_CORPUS_KMS_WRAPPED_KEY",
     )
 
     # ---- Admin ----

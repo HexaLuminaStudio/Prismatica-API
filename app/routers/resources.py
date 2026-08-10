@@ -6,6 +6,7 @@ from collections.abc import Iterator
 
 import requests
 from flask import Blueprint, Response, g, request, stream_with_context
+from pydantic import ValidationError
 from requests.exceptions import RequestException
 
 from app.config import getSettings
@@ -13,12 +14,13 @@ from app.db import getDb
 from app.deps import requireUser
 from app.errors import ApiError, successEnvelope
 from app.main import limiter
-from app.schemas.resources import ResourceBootstrapResponse
+from app.schemas.resources import DeviceResourceKeyRequest
 from app.security.resource_ticket import verifyResourceTicket
 from app.services.resource_service import (
     authorizeResourceAccess,
-    buildResourceManifests,
+    buildSignedResourceBootstrap,
     getConfiguredResource,
+    registerDeviceResourceKey,
 )
 
 bp = Blueprint("resources", __name__, url_prefix="/v1/resources")
@@ -35,13 +37,37 @@ def _publicBaseUrl() -> str:
 def bootstrapResources():
     """校验订阅和设备后签发当前资源清单。"""
     with getDb() as db:
-        manifests = buildResourceManifests(
+        response = buildSignedResourceBootstrap(
             db,
             int(g.userId),
             str(g.deviceId),
             _publicBaseUrl(),
         )
-    response = ResourceBootstrapResponse(resources=manifests)
+    return successEnvelope(response.model_dump(mode="json"))
+
+
+@bp.put("/device-key")
+@limiter.limit("60 per hour")
+@requireUser
+def registerResourceDeviceKey():
+    """首次绑定当前设备的 X25519/Ed25519 资源密钥。"""
+    try:
+        payload = DeviceResourceKeyRequest.model_validate(
+            request.get_json(force=True, silent=False)
+        )
+    except ValidationError as error:
+        raise ApiError(
+            "BAD_REQUEST",
+            "设备资源密钥参数错误",
+            details={"errors": error.errors()},
+        ) from error
+    with getDb() as db:
+        response = registerDeviceResourceKey(
+            db,
+            int(g.userId),
+            str(g.deviceId),
+            payload,
+        )
     return successEnvelope(response.model_dump(mode="json"))
 
 

@@ -88,8 +88,9 @@ deploy/
 | Billing | `POST /v1/billing/preauth` | JWT + Idempotency-Key | 预占 + pending bill |
 | Billing | `POST /v1/billing/settle` | JWT | 结算(差额返还) |
 | Billing | `POST /v1/billing/refund` | JWT | 全额退款 |
-| 资源 | `POST /v1/resources/bootstrap` | JWT + Device + 有效订阅 | 签发短期数据库下载清单 |
-| 资源 | `GET /v1/resources/download/{resourceKey}` | 短期资源票据 | 后端流式转发数据库文件 |
+| 资源 | `PUT /v1/resources/device-key` | JWT + Device | 注册 X25519/Ed25519 设备公钥与持有证明 |
+| 资源 | `POST /v1/resources/bootstrap` | JWT + Device + 有效订阅 | 签发设备绑定、KMS 封装并签名的短期清单 |
+| 资源 | `GET /v1/resources/download/{resourceKey}` | 短期资源票据 | 后端流式转发 SQLCipher 密文数据库 |
 | Admin | `POST /v1/admin/grant` | X-Admin-Token | 手动赠送余额 |
 | Admin | `POST /v1/admin/issue-codes` | X-Admin-Token | 批量签发凭证 |
 | **Admin 后台 (2026-08-05 M2)** ||||
@@ -150,9 +151,13 @@ pytest --cov=app --cov-fail-under=60
 - `HSK_CORPUS_SOURCE_URL` / `HSK_LOCAL_CORPUS_SOURCE_URL`：仅存在后端的真实源站地址。
 - `HSK_CORPUS_SHA256` / `HSK_LOCAL_CORPUS_SHA256`：正式文件 SHA-256。
 - `HSK_CORPUS_VERSION` / `HSK_LOCAL_CORPUS_VERSION`：更新文件时同步递增。
+- `RESOURCE_KMS_PROVIDER / RESOURCE_KMS_KEY_ID`：资源 DEK 的 KMS 信封加密配置。
+- `HSK_*_KMS_WRAPPED_KEY`：发布脚本输出的资源 DEK 密文，不能填写明文密钥。
+- `RESOURCE_MANIFEST_SIGNER_PROVIDER / RESOURCE_MANIFEST_SIGNING_KEY_ID`：签名清单使用的 KMS 非对称 key。
 
-`/v1/resources/bootstrap` 会实时校验账号、设备和有效订阅，下载票据默认 180 秒过期。
-桌面客户端只能看到 PrismaticaAPI 网关地址，不会收到真实源站 URL。第一阶段仍由后端代理现有源站；上线后还需把对象存储改为私有读取，才能同时关闭历史公开直链。
+`/v1/resources/bootstrap` 会实时校验账号、设备密钥和有效订阅，下载票据默认 180 秒过期。清单包含只可由目标设备 X25519 私钥解封的 SQLCipher DEK，并由 Ed25519（开发）或 KMS P-256（生产）签名。桌面客户端只能看到 PrismaticaAPI 网关地址，不会收到真实源站 URL、KMS 主密钥或可复用的数据库明文密钥。
+
+迁移、SQLCipher 发布、KMS IAM 权限和签名公钥内置流程见 [`docs/resource-protection.md`](docs/resource-protection.md)。旧的明文对象存储 URL 必须在密文资源上线后关闭。
 
 资源下载权限授予所有未过期的 `active` 订阅。内置计划为 `trial`、`pro_monthly` 和 `team_monthly`；管理员可通过 `POST /v1/admin/users/{userId}/subscriptions` 为尚无有效订阅的用户开通其中一个计划。
 
