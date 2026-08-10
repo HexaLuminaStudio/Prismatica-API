@@ -124,7 +124,7 @@ _ERROR_MESSAGE_CN: dict[str, str] = {
     "DISPLAY_NAME_INVALID": "昵称不合法,长度需在 0-64 字符",
     "ACCOUNT_DELETED": "账号已注销",
     "TOO_MANY_DEVICES": "设备数量超过上限",
-    "RESOURCE_SUBSCRIPTION_REQUIRED": "当前订阅无权下载该资源",
+    "RESOURCE_SUBSCRIPTION_REQUIRED": "需要有效的试用、Pro 或 Team 订阅才能下载该资源",
     "RESOURCE_NOT_CONFIGURED": "资源下载服务尚未配置",
     "RESOURCE_TICKET_INVALID": "资源下载凭证无效",
     "RESOURCE_TICKET_EXPIRED": "资源下载凭证已过期，请重新获取",

@@ -154,6 +154,8 @@ pytest --cov=app --cov-fail-under=60
 `/v1/resources/bootstrap` 会实时校验账号、设备和有效订阅，下载票据默认 180 秒过期。
 桌面客户端只能看到 PrismaticaAPI 网关地址，不会收到真实源站 URL。第一阶段仍由后端代理现有源站；上线后还需把对象存储改为私有读取，才能同时关闭历史公开直链。
 
+资源下载权限授予所有未过期的 `active` 订阅。内置计划为 `trial`、`pro_monthly` 和 `team_monthly`；管理员可通过 `POST /v1/admin/users/{userId}/subscriptions` 为尚无有效订阅的用户开通其中一个计划。
+
 ## 管理后台登录(2026-08-05 M2)
 
 启动时若 `admin_users` 表为空,自动 seed `root` 账号:

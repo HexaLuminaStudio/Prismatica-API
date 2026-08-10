@@ -24,6 +24,10 @@ from app.models import (
 from app.security.password import hashPassword
 from app.services.admin_audit_service import recordAudit
 from app.services.identity_auth_service import normalizeEmail
+from app.services.subscription_service import (
+    createSubscription,
+    getActiveSubscription,
+)
 
 VALID_TIERS = {"free", "pro", "team", "guest", "trial", "beta", "beta_pro", "paid"}
 STATUS_ALIASES = {
@@ -438,6 +442,58 @@ def listUserSubscriptions(userId: str) -> list[dict[str, Any]]:
         ]
 
 
+def createUserSubscription(userId: str, planCode: str) -> dict[str, Any]:
+    """管理员为无有效订阅的用户开通一个预置订阅计划。"""
+    numericUserId = _parseUserId(userId)
+    with getDb() as db:
+        user = db.execute(
+            select(UserAccount)
+            .where(UserAccount.id == numericUserId)
+            .with_for_update()
+        ).scalar_one_or_none()
+        if user is None:
+            raise ApiError("NOT_FOUND", "用户不存在")
+        if getActiveSubscription(db, numericUserId) is not None:
+            raise ApiError(
+                "CONFLICT",
+                "该用户已有有效订阅，请等待到期后再开通新订阅",
+                httpStatus=409,
+            )
+        subscription, grantResult = createSubscription(
+            db,
+            numericUserId,
+            planCode.strip(),
+            autoRenew=False,
+        )
+        payload = {
+            "userId": str(numericUserId),
+            "subscription": {
+                "subscriptionId": str(subscription.id),
+                "planCode": subscription.planCode,
+                "status": subscription.status,
+                "startedAt": subscription.startedAt,
+                "currentPeriodStart": subscription.currentPeriodStart,
+                "currentPeriodEnd": subscription.currentPeriodEnd,
+                "monthlyQuota": int(subscription.monthlyQuota or 0),
+                "autoRenew": bool(subscription.autoRenew),
+            },
+            "grantedBalance": grantResult.grantedBalance,
+        }
+        db.commit()
+
+    recordAudit(
+        actor="admin",
+        action="admin.create_subscription",
+        targetUser=str(numericUserId),
+        details={
+            "planCode": payload["subscription"]["planCode"],
+            "subscriptionId": payload["subscription"]["subscriptionId"],
+            "grantedBalance": payload["grantedBalance"],
+        },
+    )
+    return payload
+
+
 def listUserDevices(userId: str) -> list[dict[str, Any]]:
     numericUserId = _parseUserId(userId)
     with getDb() as db:
@@ -548,6 +604,7 @@ def batchUsers(action: str, userIds: list[str], status: str | None = None) -> di
 __all__ = [
     "batchUsers",
     "createUser",
+    "createUserSubscription",
     "deleteUser",
     "getUserDetail",
     "grantBalance",

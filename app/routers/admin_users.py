@@ -27,6 +27,8 @@ from app.errors import ApiError, successEnvelope
 from app.schemas.admin import (
     AdminBatchUsersRequest,
     AdminBatchUsersResponse,
+    AdminCreateSubscriptionRequest,
+    AdminCreateSubscriptionResponse,
     AdminCreateUserRequest,
     AdminCreateUserResponse,
     AdminDeleteUserResponse,
@@ -51,6 +53,7 @@ from app.schemas.admin import (
 from app.services.admin_user_service import (
     batchUsers,
     createUser,
+    createUserSubscription,
     deleteUser,
     getUserDetail,
     grantBalance,
@@ -203,6 +206,25 @@ def listSubscriptionsRoute(userId: str):
         items=[AdminUserSubscriptionItem(**item) for item in items]
     ).model_dump(mode="json")
     return successEnvelope(data)
+
+
+@bp.post("/<string:userId>/subscriptions")
+@requireAdminCookie
+def createSubscriptionRoute(userId: str):
+    """为用户开通试用、Pro 月度或 Team 月度订阅。"""
+    try:
+        payload = AdminCreateSubscriptionRequest.model_validate(
+            request.get_json(force=True, silent=False)
+        )
+    except ValidationError as error:
+        raise ApiError(
+            "BAD_REQUEST",
+            "请求参数错误",
+            details={"errors": error.errors()},
+        ) from error
+    result = createUserSubscription(userId, payload.planCode)
+    data = AdminCreateSubscriptionResponse(**result).model_dump(mode="json")
+    return successEnvelope(data, httpStatus=201)
 
 
 @bp.get("/<string:userId>/devices")

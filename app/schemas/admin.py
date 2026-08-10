@@ -170,6 +170,18 @@ class AdminUserSubscriptionsResponse(BaseModel):
     items: list[AdminUserSubscriptionItem]
 
 
+class AdminCreateSubscriptionRequest(BaseModel):
+    """POST /v1/admin/users/{userId}/subscriptions 请求体。"""
+
+    planCode: str = Field(..., min_length=1, max_length=32)
+
+
+class AdminCreateSubscriptionResponse(BaseModel):
+    userId: str
+    subscription: AdminUserSubscriptionItem
+    grantedBalance: int
+
+
 class AdminUserDeviceItem(BaseModel):
     deviceId: str
     deviceName: str
@@ -488,6 +500,8 @@ __all__ = [
     "AdminBatchUsersResponse",
     "AdminUserSubscriptionItem",
     "AdminUserSubscriptionsResponse",
+    "AdminCreateSubscriptionRequest",
+    "AdminCreateSubscriptionResponse",
     "AdminUserDeviceItem",
     "AdminUserDevicesResponse",
     "AdminRevokeUserDeviceResponse",
