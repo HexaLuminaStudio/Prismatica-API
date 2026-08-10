@@ -56,11 +56,13 @@ def client(monkeypatch) -> Iterator:
     from app.routers import account as accountRouter
     from app.routers import auth as authRouter
     from app.routers import billing as billingRouter
+    from app.routers import public as publicRouter
 
     monkeypatch.setattr(deps, "getDb", _ctx)
     monkeypatch.setattr(authRouter, "_sessionCtx", _ctx)
     monkeypatch.setattr(accountRouter, "_sessionCtx", _ctx)
     monkeypatch.setattr(billingRouter, "_sessionCtx", _ctx)
+    monkeypatch.setattr(publicRouter, "getDb", _ctx)
     getSettings().autoInitSchema = False
     app = createApp()
     app.config["TESTING"] = True
