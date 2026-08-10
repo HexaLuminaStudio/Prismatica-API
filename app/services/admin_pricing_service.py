@@ -21,6 +21,7 @@ def _serializeRule(rule: PricingRuleRecord) -> dict[str, Any]:
         "displayName": rule.displayName,
         "billingMode": rule.billingMode,
         "unitName": rule.unitName,
+        "unitSize": int(rule.unitSize or 1),
         "fixedCost": int(rule.fixedCost or 0),
         "baseCost": int(rule.baseCost or 0),
         "perUnitCost": int(rule.perUnitCost or 0),
@@ -63,6 +64,12 @@ def _validateRule(raw: dict[str, Any]) -> dict[str, Any]:
         if value < 0 or value > 1_000_000:
             raise ApiError("PRICING_RULE_INVALID", f"{featureCode} 的 {field} 超出允许范围")
         numbers[field] = value
+    try:
+        unitSize = int(raw.get("unitSize", 1) or 1)
+    except (TypeError, ValueError) as error:
+        raise ApiError("PRICING_RULE_INVALID", f"{featureCode} 的计量数量不是整数") from error
+    if unitSize < 1 or unitSize > 1_000_000:
+        raise ApiError("PRICING_RULE_INVALID", f"{featureCode} 的计量数量超出允许范围")
     if numbers["minCost"] > numbers["maxCost"]:
         raise ApiError("PRICING_RULE_INVALID", f"{featureCode} 的最低费用不能高于最高费用")
     if billingMode == "fixed":
@@ -78,6 +85,7 @@ def _validateRule(raw: dict[str, Any]) -> dict[str, Any]:
         "displayName": displayName,
         "billingMode": billingMode,
         "unitName": unitName,
+        "unitSize": unitSize,
         **numbers,
         "enabled": bool(raw.get("enabled", True)),
     }

@@ -43,6 +43,7 @@ class PricingRuleRecord(Base):
     displayName: Mapped[str] = mapped_column("display_name", String(80), nullable=False)
     billingMode: Mapped[str] = mapped_column("billing_mode", String(24), nullable=False)
     unitName: Mapped[str] = mapped_column("unit_name", String(32), nullable=False)
+    unitSize: Mapped[int] = mapped_column("unit_size", BigInteger, nullable=False, default=1)
     fixedCost: Mapped[int] = mapped_column("fixed_cost", BigInteger, nullable=False, default=0)
     baseCost: Mapped[int] = mapped_column("base_cost", BigInteger, nullable=False, default=0)
     perUnitCost: Mapped[int] = mapped_column("per_unit_cost", BigInteger, nullable=False, default=0)

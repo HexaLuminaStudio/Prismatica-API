@@ -88,15 +88,11 @@ def postSettle():
     with _sessionCtx() as db:
         bill = _ownedBill(db, payload.billId)
         mode = str((bill.pricingSnapshot or {}).get("billingMode", "metered"))
-        if mode != "metered":
-            raise ApiError("PRICING_RULE_INVALID", "固定价和 Token 账单必须由服务端结算", httpStatus=409)
-        result = getBillingService().settle(
-            db,
-            billId=payload.billId,
-            realCost=payload.realCost,
-            resourceUsed=payload.resourceUsed,
+        raise ApiError(
+            "PRICING_RULE_INVALID",
+            f"{mode or '未知模式'}账单必须使用服务端受控结算端点",
+            httpStatus=409,
         )
-        return successEnvelope(result.model_dump())
 
 
 @bp.post("/refund")
@@ -124,4 +120,18 @@ def postCommitFixed():
     with _sessionCtx() as db:
         _ownedBill(db, payload.billId)
         result = getBillingService().settleFixed(db, payload.billId)
+        return successEnvelope(result.model_dump())
+
+
+@bp.post("/commit-metered")
+@requireUser
+def postCommitMetered():
+    """下载或导出成功后，按预占时锁定的资源量与价格结算。"""
+    try:
+        payload = RefundRequest.model_validate(request.get_json(force=True, silent=False))
+    except ValidationError as error:
+        raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": error.errors()}) from error
+    with _sessionCtx() as db:
+        _ownedBill(db, payload.billId)
+        result = getBillingService().settleMetered(db, payload.billId)
         return successEnvelope(result.model_dump())

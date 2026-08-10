@@ -304,7 +304,7 @@ def preauth(
         status="pending",
         description=description or "",
         pricingVersion=quote.pricingVersion,
-        pricingSnapshot=quote.ruleSnapshot,
+        pricingSnapshot={**quote.ruleSnapshot, "quotedResourceUsed": max(0, int(resourceUsed))},
         idempotencyKey=idempotencyKey or f"auto:{billId}",
         requestHash=requestHash,
         preauthExpiresAt=_now() + timedelta(minutes=15),
@@ -491,6 +491,30 @@ def settleFixed(db: Session, billId: str) -> SettleResponse:
     return settle(db, billId, realCost=int(bill.estimatedCost or 0))
 
 
+def settleMetered(db: Session, billId: str) -> SettleResponse:
+    """按预占时保存的资源量和价格快照结算，客户端不能下调实际费用。"""
+    bill = db.execute(select(Bill).where(Bill.billId == billId)).scalar_one_or_none()
+    if bill is None:
+        raise ApiError("BILL_NOT_FOUND", httpStatus=409)
+    snapshot = dict(bill.pricingSnapshot or {})
+    if snapshot.get("billingMode") != "metered":
+        raise ApiError("PRICING_RULE_INVALID", "该账单不是按量计费任务", httpStatus=409)
+    if bill.status == "settled":
+        balance = _lockIdentityBalance(db, int(bill.userId))
+        actualCost = int(bill.actualCost or 0)
+        return SettleResponse(
+            billId=bill.billId,
+            realCost=actualCost,
+            balanceAfter=int(balance.balance or 0) - int(balance.reserved or 0),
+            refunded=max(0, int(bill.estimatedCost or 0) - actualCost),
+        )
+    resourceUsed = max(0, int(snapshot.get("quotedResourceUsed", 0) or 0))
+    realCost = costFromSnapshot(snapshot, resourceUsed=resourceUsed)
+    if realCost != int(bill.estimatedCost or 0):
+        raise ApiError("PRICING_RULE_INVALID", "账单预占金额与价格快照不一致", httpStatus=409)
+    return settle(db, billId, realCost=realCost, resourceUsed=resourceUsed)
+
+
 def settleTokens(db: Session, billId: str, inputTokens: int, outputTokens: int) -> SettleResponse:
     """AI 调用完成后按供应商返回的真实 Token 和锁定快照结算。"""
     bill = db.execute(select(Bill).where(Bill.billId == billId)).scalar_one_or_none()
@@ -641,6 +665,9 @@ class BillingService:
     def settleFixed(self, db: Session, billId: str) -> SettleResponse:
         return settleFixed(db, billId)
 
+    def settleMetered(self, db: Session, billId: str) -> SettleResponse:
+        return settleMetered(db, billId)
+
     def settleTokens(self, db: Session, billId: str, inputTokens: int, outputTokens: int) -> SettleResponse:
         return settleTokens(db, billId, inputTokens, outputTokens)
 
@@ -671,6 +698,7 @@ __all__ = [
     "settle",
     "refund",
     "settleFixed",
+    "settleMetered",
     "settleTokens",
     "estimate_svc",
     "preauth_svc",

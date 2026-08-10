@@ -29,6 +29,7 @@ from app.services.billing_service import (
     refund,
     settle,
     settleFixed,
+    settleMetered,
     settleTokens,
 )
 
@@ -228,6 +229,19 @@ def testSettleFixed_IsIdempotentForClientRetry(db: Session) -> None:
     assert first.balanceAfter == second.balanceAfter == 495
 
 
+def testSettleMetered_UsesLockedResourceAndPriceSnapshot(db: Session) -> None:
+    user = _makeUserWithBalance(db, 500)
+    preauthResp = preauth(db, user.id, "hsk_download", 1_001)
+    bill = db.execute(select(Bill).where(Bill.billId == preauthResp.billId)).scalar_one()
+    assert bill.pricingSnapshot["quotedResourceUsed"] == 1_001
+    assert preauthResp.estimatedCost == 6
+
+    first = settleMetered(db, preauthResp.billId)
+    second = settleMetered(db, preauthResp.billId)
+    assert first.realCost == second.realCost == 6
+    assert first.balanceAfter == second.balanceAfter == 494
+
+
 def testSettleTokens_KeepsPreauthPriceSnapshotAfterPublish(db: Session) -> None:
     user = _makeUserWithBalance(db, 500)
     preauthResp = preauth(
@@ -238,7 +252,7 @@ def testSettleTokens_KeepsPreauthPriceSnapshotAfterPublish(db: Session) -> None:
         estimatedInputTokens=2_000,
         estimatedOutputTokens=2_000,
     )
-    assert preauthResp.pricingVersion == "2026.08.10-initial"
+    assert preauthResp.pricingVersion == "2026.08.10-corpus-downloads"
 
     version = PricingVersion(
         versionCode="test-new-price",
@@ -269,7 +283,7 @@ def testSettleTokens_KeepsPreauthPriceSnapshotAfterPublish(db: Session) -> None:
     result = settleTokens(db, preauthResp.billId, inputTokens=100, outputTokens=100)
     assert result.realCost == 3
     bill = db.execute(select(Bill).where(Bill.billId == preauthResp.billId)).scalar_one()
-    assert bill.pricingVersion == "2026.08.10-initial"
+    assert bill.pricingVersion == "2026.08.10-corpus-downloads"
     assert bill.inputTokens == 100
     assert bill.outputTokens == 100
 

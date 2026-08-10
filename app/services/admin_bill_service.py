@@ -42,7 +42,9 @@ def _toItem(row: Bill, displayName: str | None) -> dict[str, Any]:
         "actionDisplayName": str(snapshot.get("displayName") or row.feature),
         "estimatedCost": int(row.estimatedCost or 0),
         "realCost": int(row.actualCost or 0),
-        "resourceUsed": (inputTokens or 0) + (outputTokens or 0),
+        "resourceUsed": int(
+            snapshot.get("quotedResourceUsed", (inputTokens or 0) + (outputTokens or 0)) or 0
+        ),
         "balanceBefore": 0,
         "balanceAfter": 0,
         "status": row.status,

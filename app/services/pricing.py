@@ -16,7 +16,7 @@ from app.errors import ApiError
 from app.models.pricing import PricingRuleRecord, PricingVersion
 from app.schemas.billing import CostPreview, PricingRule, PricingTier
 
-BUILTIN_VERSION = "2026.08.10-initial"
+BUILTIN_VERSION = "2026.08.10-corpus-downloads"
 
 
 @dataclass(frozen=True)
@@ -25,6 +25,7 @@ class PriceRule:
     displayName: str
     billingMode: str
     unitName: str
+    unitSize: int = 1
     fixedCost: int = 0
     baseCost: int = 0
     perUnitCost: int = 0
@@ -86,6 +87,36 @@ BUILTIN_RULES: dict[str, PriceRule] = {
         minCost=1,
         maxCost=100_000,
     ),
+    "hsk_download": PriceRule(
+        featureCode="hsk_download",
+        displayName="HSK 语料下载",
+        billingMode="metered",
+        unitName="千条",
+        unitSize=1_000,
+        perUnitCost=3,
+        minCost=3,
+        maxCost=1_000_000,
+    ),
+    "global_download": PriceRule(
+        featureCode="global_download",
+        displayName="全球中介语语料下载",
+        billingMode="metered",
+        unitName="千条",
+        unitSize=1_000,
+        perUnitCost=3,
+        minCost=3,
+        maxCost=1_000_000,
+    ),
+    "hsk_essay_export": PriceRule(
+        featureCode="hsk_essay_export",
+        displayName="HSK 作文导出",
+        billingMode="metered",
+        unitName="百篇",
+        unitSize=100,
+        perUnitCost=1,
+        minCost=1,
+        maxCost=1_000_000,
+    ),
 }
 
 # 旧测试和兼容调用仍可读取这一名称；正式目录只包含已确认需要收费的云端动作。
@@ -105,8 +136,9 @@ DEFAULT_RULES: dict[str, PricingRule] = {
 }
 
 
-def _ceilThousands(value: int) -> int:
-    return max(0, (int(value) + 999) // 1000)
+def _ceilUnits(value: int, unitSize: int) -> int:
+    safeUnitSize = max(1, int(unitSize))
+    return max(0, (int(value) + safeUnitSize - 1) // safeUnitSize)
 
 
 def costFromSnapshot(
@@ -122,11 +154,13 @@ def costFromSnapshot(
         cost = int(snapshot.get("fixedCost", 0) or 0)
     elif mode == "token":
         cost = int(snapshot.get("baseCost", 0) or 0)
-        cost += _ceilThousands(inputTokens) * int(snapshot.get("inputTokenCostPer1K", 0) or 0)
-        cost += _ceilThousands(outputTokens) * int(snapshot.get("outputTokenCostPer1K", 0) or 0)
+        cost += _ceilUnits(inputTokens, 1_000) * int(snapshot.get("inputTokenCostPer1K", 0) or 0)
+        cost += _ceilUnits(outputTokens, 1_000) * int(snapshot.get("outputTokenCostPer1K", 0) or 0)
     elif mode == "metered":
         cost = int(snapshot.get("baseCost", 0) or 0)
-        cost += _ceilThousands(resourceUsed) * int(snapshot.get("perUnitCost", 0) or 0)
+        cost += _ceilUnits(resourceUsed, int(snapshot.get("unitSize", 1) or 1)) * int(
+            snapshot.get("perUnitCost", 0) or 0
+        )
     else:
         raise ApiError("PRICING_RULE_INVALID", "账单价格快照无效", httpStatus=409)
     minimum = int(snapshot.get("minCost", 0) or 0)
@@ -157,6 +191,7 @@ class PricingService:
             displayName=record.displayName,
             billingMode=record.billingMode,
             unitName=record.unitName,
+            unitSize=int(record.unitSize or 1),
             fixedCost=int(record.fixedCost or 0),
             baseCost=int(record.baseCost or 0),
             perUnitCost=int(record.perUnitCost or 0),

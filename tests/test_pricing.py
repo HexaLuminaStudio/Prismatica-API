@@ -50,4 +50,26 @@ def testPublicCatalog_AdvertisesThirtySecondRefresh() -> None:
         "ai_chat",
         "ai_insight",
         "ai_report",
+        "hsk_download",
+        "global_download",
+        "hsk_essay_export",
     }
+
+
+@pytest.mark.parametrize("featureCode", ["hsk_download", "global_download"])
+def testCorpusDownload_RoundsUpEveryThousandRecords(featureCode: str) -> None:
+    pricing = getPricingService()
+    assert pricing.estimate(featureCode, 1) == 3
+    assert pricing.estimate(featureCode, 999) == 3
+    assert pricing.estimate(featureCode, 1_000) == 3
+    assert pricing.estimate(featureCode, 1_001) == 6
+    assert pricing.estimate(featureCode, 2_000) == 6
+
+
+def testHskEssayExport_RoundsUpEveryHundredEssays() -> None:
+    pricing = getPricingService()
+    assert pricing.estimate("hsk_essay_export", 1) == 1
+    assert pricing.estimate("hsk_essay_export", 99) == 1
+    assert pricing.estimate("hsk_essay_export", 100) == 1
+    assert pricing.estimate("hsk_essay_export", 101) == 2
+    assert pricing.estimate("hsk_essay_export", 200) == 2

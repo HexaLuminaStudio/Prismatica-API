@@ -23,6 +23,7 @@ cp .env.example .env
 # 3. 准备空 MySQL 数据库并执行版本化迁移（可安全重复运行）
 python -m scripts.migrate_account_billing
 python -m scripts.migrate_dynamic_pricing
+python -m scripts.migrate_corpus_download_pricing
 python -m scripts.db_preflight
 
 # 4. 启动（P0-A M2-M9 完成前，旧 ORM 尚未适配新 schema）
@@ -87,8 +88,9 @@ deploy/
 | Account | `GET /v1/account/bills` | JWT | 账单列表(cursor 分页) |
 | Billing | `POST /v1/billing/estimate` | JWT | 费用预估(只读) |
 | Billing | `POST /v1/billing/preauth` | JWT + Idempotency-Key | 预占 + pending bill |
-| Billing | `POST /v1/billing/settle` | JWT | 结算(差额返还) |
+| Billing | `POST /v1/billing/settle` | JWT | 兼容入口；受控账单拒绝客户端自行申报费用 |
 | Billing | `POST /v1/billing/commit-fixed` | JWT | 固定价任务按预授权价格快照结算 |
+| Billing | `POST /v1/billing/commit-metered` | JWT | 按量任务按预授权资源量与价格快照结算 |
 | Billing | `POST /v1/billing/refund` | JWT | 全额退款 |
 | 定价 | `GET /v1/pricing/catalog` | 无 | 当前公开价格目录（客户端约 30 秒刷新） |
 | AI | `POST /v1/ai/chat` | JWT + Idempotency-Key | 平台密钥代理调用，按真实输入/输出 Token 结算 |
