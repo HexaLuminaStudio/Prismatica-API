@@ -5,10 +5,12 @@ from contextlib import contextmanager
 
 from flask import Blueprint, g, request
 from pydantic import ValidationError
+from sqlalchemy import select
 
 from app.db import getDb
-from app.deps import requireAuth
+from app.deps import requireUser
 from app.errors import ApiError, successEnvelope
+from app.models.bill import Bill
 from app.schemas.billing import (
     EstimateRequest,
     PreauthRequest,
@@ -26,8 +28,17 @@ def _sessionCtx():
         yield db
 
 
+def _ownedBill(db, billId: str) -> Bill:
+    bill = db.execute(select(Bill).where(Bill.billId == billId)).scalar_one_or_none()
+    if bill is None:
+        raise ApiError("BILL_NOT_FOUND", httpStatus=409)
+    if int(bill.userId) != int(g.userId):
+        raise ApiError("FORBIDDEN", "不能操作其他用户的账单", httpStatus=403)
+    return bill
+
+
 @bp.post("/estimate")
-@requireAuth
+@requireUser
 def postEstimate():
     try:
         payload = EstimateRequest.model_validate(request.get_json(force=True, silent=False))
@@ -45,7 +56,7 @@ def postEstimate():
 
 
 @bp.post("/preauth")
-@requireAuth
+@requireUser
 def postPreauth():
     try:
         payload = PreauthRequest.model_validate(request.get_json(force=True, silent=False))
@@ -67,7 +78,7 @@ def postPreauth():
 
 
 @bp.post("/settle")
-@requireAuth
+@requireUser
 def postSettle():
     try:
         payload = SettleRequest.model_validate(request.get_json(force=True, silent=False))
@@ -75,6 +86,10 @@ def postSettle():
         raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": e.errors()}) from e
 
     with _sessionCtx() as db:
+        bill = _ownedBill(db, payload.billId)
+        mode = str((bill.pricingSnapshot or {}).get("billingMode", "metered"))
+        if mode != "metered":
+            raise ApiError("PRICING_RULE_INVALID", "固定价和 Token 账单必须由服务端结算", httpStatus=409)
         result = getBillingService().settle(
             db,
             billId=payload.billId,
@@ -85,7 +100,7 @@ def postSettle():
 
 
 @bp.post("/refund")
-@requireAuth
+@requireUser
 def postRefund():
     try:
         payload = RefundRequest.model_validate(request.get_json(force=True, silent=False))
@@ -93,5 +108,20 @@ def postRefund():
         raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": e.errors()}) from e
 
     with _sessionCtx() as db:
+        _ownedBill(db, payload.billId)
         result = getBillingService().refund(db, billId=payload.billId)
+        return successEnvelope(result.model_dump())
+
+
+@bp.post("/commit-fixed")
+@requireUser
+def postCommitFixed():
+    """本地导出成功后，按预占时锁定的固定价结算。"""
+    try:
+        payload = RefundRequest.model_validate(request.get_json(force=True, silent=False))
+    except ValidationError as error:
+        raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": error.errors()}) from error
+    with _sessionCtx() as db:
+        _ownedBill(db, payload.billId)
+        result = getBillingService().settleFixed(db, payload.billId)
         return successEnvelope(result.model_dump())

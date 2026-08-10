@@ -1,46 +1,53 @@
-"""定价服务单元测试(纯逻辑,无 DB 依赖)。"""
+"""动态定价服务的核心业务规则。"""
 from __future__ import annotations
 
+import pytest
+
+from app.errors import ApiError
 from app.services.pricing import getPricingService
 
 
-def test_estimate_freq_analyze_min_cost():
-    ps = getPricingService()
-    # 0 字 → 千字=0 → baseCost=5,clamp 到 minCost=5
-    assert ps.estimate("freq_analyze", 0) == 5
+def testAnalysisExport_IsFixedRegardlessOfVolume() -> None:
+    pricing = getPricingService()
+    assert pricing.estimate("analysis_export", 0) == 5
+    assert pricing.estimate("analysis_export", 1) == 5
+    assert pricing.estimate("analysis_export", 10_000_000) == 5
 
 
-def test_estimate_freq_analyze_one_thousand():
-    ps = getPricingService()
-    # 1000 字 → 1 千字 → 5 + 1*2*1.0 = 7
-    assert ps.estimate("freq_analyze", 1000) == 7
-
-
-def test_estimate_freq_analyze_high_volume_discount():
-    ps = getPricingService()
-    # 60 千字 → 命中 upTo=-1 阶梯(0.5 倍率):5 + 60*2*0.5 = 65
-    assert ps.estimate("freq_analyze", 60_000) == 65
-
-
-def test_estimate_clamped_to_max():
-    ps = getPricingService()
-    # 200 千字 → 5 + 200*2*0.5 = 205 → clamp 到 maxCost=200
-    assert ps.estimate("freq_analyze", 200_000) == 200
-
-
-def test_preview_affordability():
-    ps = getPricingService()
-    preview = ps.preview("freq_analyze", 1000, currentBalance=100)
-    assert preview.estimatedCost == 7
+def testAnalysisExport_PreviewShowsAffordabilityAndVersion() -> None:
+    pricing = getPricingService()
+    preview = pricing.preview("analysis_export", 99_999, currentBalance=100)
+    assert preview.estimatedCost == 5
     assert preview.affordable is True
-    assert preview.balanceAfter == 93
+    assert preview.balanceAfter == 95
+    assert preview.billingMode == "fixed"
+    assert preview.pricingVersion
 
-    poor = ps.preview("freq_analyze", 1000, currentBalance=3)
+    poor = pricing.preview("analysis_export", 1, currentBalance=4)
     assert poor.affordable is False
 
 
-def test_unknown_action_falls_back():
-    ps = getPricingService()
-    rule = ps.rule("totally_unknown")
-    assert rule.baseCost >= 1
-    assert ps.estimate("totally_unknown", 0) >= 1
+def testAiTokenPrice_UsesSeparateInputAndOutputThousands() -> None:
+    pricing = getPricingService()
+    quote = pricing.quote("ai_chat", inputTokens=1_001, outputTokens=2_001)
+    assert quote.billingMode == "token"
+    assert quote.estimatedCost == 2 * 1 + 3 * 2
+
+
+def testUnknownOrLocalAction_IsNeverSilentlyCharged() -> None:
+    pricing = getPricingService()
+    for actionType in ("totally_unknown", "freq_analyze", "kwic_search"):
+        with pytest.raises(ApiError) as exc:
+            pricing.estimate(actionType, 10_000)
+        assert exc.value.code == "PRICING_RULE_NOT_FOUND"
+
+
+def testPublicCatalog_AdvertisesThirtySecondRefresh() -> None:
+    catalog = getPricingService().publicCatalog()
+    assert catalog["refreshAfterSeconds"] == 30
+    assert {rule["featureCode"] for rule in catalog["rules"]} >= {
+        "analysis_export",
+        "ai_chat",
+        "ai_insight",
+        "ai_report",
+    }

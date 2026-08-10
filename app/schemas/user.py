@@ -46,6 +46,9 @@ class BillOut(BaseModel):
     status: str
     taskId: str
     description: str
+    pricingVersion: str | None = None
+    inputTokens: int | None = None
+    outputTokens: int | None = None
     createdAt: datetime
     settledAt: datetime | None = None
 

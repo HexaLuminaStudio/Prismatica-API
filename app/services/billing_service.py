@@ -41,7 +41,7 @@ from app.schemas.billing import (
     RefundResponse,
     SettleResponse,
 )
-from app.services.pricing import PricingService, getPricingService
+from app.services.pricing import PricingService, costFromSnapshot, getPricingService
 
 IDEMPOTENCY_WINDOW_HOURS = 24
 
@@ -221,7 +221,8 @@ def estimate(
 ) -> CostPreview:
     balance = _ensureIdentityBalance(db, userId)
     pricing = pricing or getPricingService()
-    return pricing.preview(actionType, resourceUsed, int(balance.balance or 0))
+    availableBalance = int(balance.balance or 0) - int(balance.reserved or 0)
+    return pricing.preview(actionType, resourceUsed, availableBalance, db=db)
 
 
 # ---------------------------------------------------------------------------
@@ -240,10 +241,19 @@ def preauth(
     idempotencyKey: str | None = None,
     operation: str = "billing.preauth",
     pricing: PricingService | None = None,
+    estimatedInputTokens: int = 0,
+    estimatedOutputTokens: int = 0,
 ) -> PreauthResponse:
     """预占(冻结)余额;同时写 ledger(reserve)+ idempotency_keys。"""
     pricing = pricing or getPricingService()
-    estimatedCost = pricing.estimate(actionType, resourceUsed)
+    quote = pricing.quote(
+        actionType,
+        db=db,
+        resourceUsed=resourceUsed,
+        inputTokens=estimatedInputTokens,
+        outputTokens=estimatedOutputTokens,
+    )
+    estimatedCost = quote.estimatedCost
 
     requestPayload: dict[str, Any] = {
         "userId": userId,
@@ -251,6 +261,8 @@ def preauth(
         "resourceUsed": resourceUsed,
         "taskId": taskId,
         "description": description,
+        "estimatedInputTokens": estimatedInputTokens,
+        "estimatedOutputTokens": estimatedOutputTokens,
     }
     requestHash = _hashRequest(requestPayload)
 
@@ -291,6 +303,8 @@ def preauth(
         actualCost=None,
         status="pending",
         description=description or "",
+        pricingVersion=quote.pricingVersion,
+        pricingSnapshot=quote.ruleSnapshot,
         idempotencyKey=idempotencyKey or f"auto:{billId}",
         requestHash=requestHash,
         preauthExpiresAt=_now() + timedelta(minutes=15),
@@ -317,6 +331,8 @@ def preauth(
         billId=billId,
         estimatedCost=estimatedCost,
         balanceAfter=availableAfter,
+        pricingVersion=quote.pricingVersion,
+        billingMode=quote.billingMode,
     )
 
     if idempotencyKey:
@@ -389,6 +405,8 @@ def settle(
     balanceAfter = int(balance.balance or 0)
 
     bill.actualCost = realCost
+    bill.inputTokens = None
+    bill.outputTokens = None
     bill.status = "settled"
     bill.settledAt = _now()
     db.flush()
@@ -450,6 +468,49 @@ def settle(
         f"[Billing] settle bill={billId} realCost={realCost} "
         f"refund={refundAmount} balanceAfter={balanceAfter} reserved={reservedAfter}"
     )
+    return result
+
+
+def settleFixed(db: Session, billId: str) -> SettleResponse:
+    """固定价任务成功后按账单快照原价结算。"""
+    bill = db.execute(select(Bill).where(Bill.billId == billId)).scalar_one_or_none()
+    if bill is None:
+        raise ApiError("BILL_NOT_FOUND", httpStatus=409)
+    snapshot = dict(bill.pricingSnapshot or {})
+    if snapshot.get("billingMode") != "fixed":
+        raise ApiError("PRICING_RULE_INVALID", "该账单不是固定价任务", httpStatus=409)
+    if bill.status == "settled":
+        balance = _lockIdentityBalance(db, int(bill.userId))
+        actualCost = int(bill.actualCost or 0)
+        return SettleResponse(
+            billId=bill.billId,
+            realCost=actualCost,
+            balanceAfter=int(balance.balance or 0) - int(balance.reserved or 0),
+            refunded=max(0, int(bill.estimatedCost or 0) - actualCost),
+        )
+    return settle(db, billId, realCost=int(bill.estimatedCost or 0))
+
+
+def settleTokens(db: Session, billId: str, inputTokens: int, outputTokens: int) -> SettleResponse:
+    """AI 调用完成后按供应商返回的真实 Token 和锁定快照结算。"""
+    bill = db.execute(select(Bill).where(Bill.billId == billId)).scalar_one_or_none()
+    if bill is None:
+        raise ApiError("BILL_NOT_FOUND", httpStatus=409)
+    snapshot = dict(bill.pricingSnapshot or {})
+    if snapshot.get("billingMode") != "token":
+        raise ApiError("PRICING_RULE_INVALID", "该账单不是 Token 计费任务", httpStatus=409)
+    realCost = costFromSnapshot(
+        snapshot,
+        inputTokens=max(0, int(inputTokens)),
+        outputTokens=max(0, int(outputTokens)),
+    )
+    if realCost > int(bill.estimatedCost or 0):
+        realCost = int(bill.estimatedCost or 0)
+    result = settle(db, billId, realCost=realCost, resourceUsed=inputTokens + outputTokens)
+    refreshedBill = db.execute(select(Bill).where(Bill.billId == billId)).scalar_one()
+    refreshedBill.inputTokens = max(0, int(inputTokens))
+    refreshedBill.outputTokens = max(0, int(outputTokens))
+    db.commit()
     return result
 
 
@@ -555,6 +616,8 @@ class BillingService:
         taskId: str = "",
         description: str = "",
         idempotencyKey: str | None = None,
+        estimatedInputTokens: int = 0,
+        estimatedOutputTokens: int = 0,
     ) -> PreauthResponse:
         return preauth(
             db,
@@ -565,6 +628,8 @@ class BillingService:
             description=description,
             idempotencyKey=idempotencyKey,
             pricing=self._pricing,
+            estimatedInputTokens=estimatedInputTokens,
+            estimatedOutputTokens=estimatedOutputTokens,
         )
 
     def settle(self, db: Session, billId: str, realCost: int, resourceUsed: int = 0) -> SettleResponse:
@@ -572,6 +637,12 @@ class BillingService:
 
     def refund(self, db: Session, billId: str) -> RefundResponse:
         return refund(db, billId)
+
+    def settleFixed(self, db: Session, billId: str) -> SettleResponse:
+        return settleFixed(db, billId)
+
+    def settleTokens(self, db: Session, billId: str, inputTokens: int, outputTokens: int) -> SettleResponse:
+        return settleTokens(db, billId, inputTokens, outputTokens)
 
 
 _billingSingleton: BillingService | None = None
@@ -599,6 +670,8 @@ __all__ = [
     "preauth",
     "settle",
     "refund",
+    "settleFixed",
+    "settleTokens",
     "estimate_svc",
     "preauth_svc",
     "settle_svc",

@@ -406,6 +406,10 @@ class AdminBillListItem(BaseModel):
     taskId: str
     description: str
     idempotencyKey: str | None = None
+    pricingVersion: str | None = None
+    pricingSnapshot: dict = Field(default_factory=dict)
+    inputTokens: int | None = None
+    outputTokens: int | None = None
     createdAt: datetime
     settledAt: datetime | None = None
 

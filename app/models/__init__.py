@@ -25,6 +25,7 @@ from app.models.identity import (
     User as IdentityUser,
 )
 from app.models.license_code import LicenseCode
+from app.models.pricing import PricingRuleRecord, PricingVersion
 from app.models.recharge_record import RechargeRecord
 from app.models.refresh_token import RefreshToken
 from app.models.revoked_token import RevokedToken
@@ -51,6 +52,8 @@ __all__ = [
     "IdentityUser",
     "LicenseCode",
     "PasswordResetToken",
+    "PricingRuleRecord",
+    "PricingVersion",
     "RechargeCode",
     "RechargeRecord",
     "RefreshToken",

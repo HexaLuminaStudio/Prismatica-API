@@ -1,169 +1,280 @@
-"""智慧计价服务。
+"""版本化定价服务。
 
-对齐客户端 `app/core/services/pricing_service.py` 的 DEFAULT_RULES:
-    基础费 + (资源量 / 单价单位) * perUnit * 阶梯倍率
-    最终 clamp 在 [minCost, maxCost]
+正式价格优先读取最近发布的数据库版本；测试或尚未迁移的环境使用内置初始目录。
+未知功能默认拒绝计费，禁止用一个静默兜底价误收费用。
 """
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass
+from typing import Any
+
+from sqlalchemy import inspect, select
+from sqlalchemy.exc import OperationalError, ProgrammingError
+from sqlalchemy.orm import Session
+
+from app.errors import ApiError
+from app.models.pricing import PricingRuleRecord, PricingVersion
 from app.schemas.billing import CostPreview, PricingRule, PricingTier
 
-# 默认规则(与客户端 DEFAULT_RULES 对齐)
-DEFAULT_RULES: dict[str, PricingRule] = {
-    "freq_analyze": PricingRule(
-        actionType="freq_analyze",
-        displayName="词频分析",
-        baseCost=5,
-        perUnit=2,
-        unitName="千字",
-        tiers=[
-            PricingTier(upTo=10, rate=1.0),
-            PricingTier(upTo=50, rate=0.8),
-            PricingTier(upTo=-1, rate=0.5),
-        ],
+BUILTIN_VERSION = "2026.08.10-initial"
+
+
+@dataclass(frozen=True)
+class PriceRule:
+    featureCode: str
+    displayName: str
+    billingMode: str
+    unitName: str
+    fixedCost: int = 0
+    baseCost: int = 0
+    perUnitCost: int = 0
+    inputTokenCostPer1K: int = 0
+    outputTokenCostPer1K: int = 0
+    minCost: int = 0
+    maxCost: int = 1_000_000
+    enabled: bool = True
+
+
+@dataclass(frozen=True)
+class PriceQuote:
+    featureCode: str
+    displayName: str
+    billingMode: str
+    unitName: str
+    estimatedCost: int
+    pricingVersion: str
+    ruleSnapshot: dict[str, Any]
+
+
+BUILTIN_RULES: dict[str, PriceRule] = {
+    "analysis_export": PriceRule(
+        featureCode="analysis_export",
+        displayName="语料分析导出",
+        billingMode="fixed",
+        unitName="次",
+        fixedCost=5,
         minCost=5,
-        maxCost=200,
+        maxCost=5,
     ),
-    "kwic_search": PricingRule(
-        actionType="kwic_search",
-        displayName="KWIC 检索",
-        baseCost=1,
-        perUnit=1,
-        unitName="千字",
+    "ai_chat": PriceRule(
+        featureCode="ai_chat",
+        displayName="AI 聊天",
+        billingMode="token",
+        unitName="千 Token",
+        inputTokenCostPer1K=1,
+        outputTokenCostPer1K=2,
         minCost=1,
-        maxCost=50,
+        maxCost=100_000,
     ),
-    "co_occurrence": PricingRule(
-        actionType="co_occurrence",
-        displayName="共现分析",
-        baseCost=3,
-        perUnit=2,
-        unitName="千字",
-        minCost=3,
-        maxCost=100,
+    "ai_insight": PriceRule(
+        featureCode="ai_insight",
+        displayName="AI 解读",
+        billingMode="token",
+        unitName="千 Token",
+        inputTokenCostPer1K=1,
+        outputTokenCostPer1K=2,
+        minCost=1,
+        maxCost=100_000,
     ),
-    "dependency_parse": PricingRule(
-        actionType="dependency_parse",
-        displayName="句法依存",
-        baseCost=10,
-        perUnit=5,
-        unitName="千字",
-        tiers=[
-            PricingTier(upTo=5, rate=1.0),
-            PricingTier(upTo=-1, rate=0.7),
-        ],
-        minCost=10,
-        maxCost=300,
-    ),
-    "word_cloud": PricingRule(
-        actionType="word_cloud",
-        displayName="词云生成",
-        baseCost=2,
-        perUnit=1,
-        unitName="千字",
-        minCost=2,
-        maxCost=50,
-    ),
-    "sentiment": PricingRule(
-        actionType="sentiment",
-        displayName="情感分析",
-        baseCost=5,
-        perUnit=3,
-        unitName="千字",
-        minCost=5,
-        maxCost=150,
-    ),
-    "bias_stats": PricingRule(
-        actionType="bias_stats",
-        displayName="偏误统计",
-        baseCost=8,
-        perUnit=3,
-        unitName="千字",
-        minCost=8,
-        maxCost=200,
-    ),
-    "corpus_import": PricingRule(
-        actionType="corpus_import",
-        displayName="语料导入",
-        baseCost=3,
-        perUnit=1,
-        unitName="千字",
-        minCost=3,
-        maxCost=80,
-    ),
-    "corpus_download": PricingRule(
-        actionType="corpus_download",
-        displayName="语料下载",
-        baseCost=2,
-        perUnit=1,
-        unitName="千字",
-        minCost=2,
-        maxCost=60,
+    "ai_report": PriceRule(
+        featureCode="ai_report",
+        displayName="AI 研究报告",
+        billingMode="token",
+        unitName="千 Token",
+        inputTokenCostPer1K=1,
+        outputTokenCostPer1K=2,
+        minCost=1,
+        maxCost=100_000,
     ),
 }
 
+# 旧测试和兼容调用仍可读取这一名称；正式目录只包含已确认需要收费的云端动作。
+DEFAULT_RULES: dict[str, PricingRule] = {
+    code: PricingRule(
+        actionType=code,
+        displayName=rule.displayName,
+        baseCost=rule.fixedCost or rule.baseCost,
+        perUnit=rule.perUnitCost,
+        unitName=rule.unitName,
+        tiers=[PricingTier(upTo=-1, rate=1.0)],
+        minCost=rule.minCost,
+        maxCost=rule.maxCost,
+        enabled=rule.enabled,
+    )
+    for code, rule in BUILTIN_RULES.items()
+}
+
+
+def _ceilThousands(value: int) -> int:
+    return max(0, (int(value) + 999) // 1000)
+
+
+def costFromSnapshot(
+    snapshot: dict[str, Any],
+    *,
+    resourceUsed: int = 0,
+    inputTokens: int = 0,
+    outputTokens: int = 0,
+) -> int:
+    """只使用账单快照计算费用，保证调价不影响进行中的任务。"""
+    mode = str(snapshot.get("billingMode", ""))
+    if mode == "fixed":
+        cost = int(snapshot.get("fixedCost", 0) or 0)
+    elif mode == "token":
+        cost = int(snapshot.get("baseCost", 0) or 0)
+        cost += _ceilThousands(inputTokens) * int(snapshot.get("inputTokenCostPer1K", 0) or 0)
+        cost += _ceilThousands(outputTokens) * int(snapshot.get("outputTokenCostPer1K", 0) or 0)
+    elif mode == "metered":
+        cost = int(snapshot.get("baseCost", 0) or 0)
+        cost += _ceilThousands(resourceUsed) * int(snapshot.get("perUnitCost", 0) or 0)
+    else:
+        raise ApiError("PRICING_RULE_INVALID", "账单价格快照无效", httpStatus=409)
+    minimum = int(snapshot.get("minCost", 0) or 0)
+    maximum = int(snapshot.get("maxCost", 1_000_000) or 1_000_000)
+    return max(minimum, min(maximum, cost))
+
 
 class PricingService:
-    """计价门面(无状态)。"""
+    """版本化定价门面。"""
 
-    def rule(self, actionType: str) -> PricingRule:
-        rule = DEFAULT_RULES.get(actionType)
-        if rule is None:
-            # 未知动作返回「按次计费」兜底规则
-            return PricingRule(
-                actionType=actionType,
-                displayName=actionType,
-                baseCost=1,
-                perUnit=1,
-                unitName="次",
-                minCost=1,
-                maxCost=100,
-            )
+    def _publishedVersion(self, db: Session) -> PricingVersion | None:
+        connection = db.connection()
+        if not inspect(connection).has_table("pricing_versions"):
+            return None
+        try:
+            return db.execute(
+                select(PricingVersion)
+                .where(PricingVersion.status == "published")
+                .order_by(PricingVersion.publishedAt.desc(), PricingVersion.versionId.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+        except (OperationalError, ProgrammingError):
+            return None
+
+    def _recordToRule(self, record: PricingRuleRecord) -> PriceRule:
+        return PriceRule(
+            featureCode=record.featureCode,
+            displayName=record.displayName,
+            billingMode=record.billingMode,
+            unitName=record.unitName,
+            fixedCost=int(record.fixedCost or 0),
+            baseCost=int(record.baseCost or 0),
+            perUnitCost=int(record.perUnitCost or 0),
+            inputTokenCostPer1K=int(record.inputTokenCostPer1K or 0),
+            outputTokenCostPer1K=int(record.outputTokenCostPer1K or 0),
+            minCost=int(record.minCost or 0),
+            maxCost=int(record.maxCost or 1_000_000),
+            enabled=bool(record.enabled),
+        )
+
+    def catalog(self, db: Session | None = None) -> tuple[str, list[PriceRule]]:
+        if db is not None:
+            version = self._publishedVersion(db)
+            if version is not None:
+                records = db.execute(
+                    select(PricingRuleRecord)
+                    .where(PricingRuleRecord.versionId == version.versionId)
+                    .order_by(PricingRuleRecord.ruleId.asc())
+                ).scalars().all()
+                return version.versionCode, [self._recordToRule(record) for record in records]
+        return BUILTIN_VERSION, list(BUILTIN_RULES.values())
+
+    def rule(self, actionType: str, db: Session | None = None) -> PriceRule:
+        _version, rules = self.catalog(db)
+        rule = next((item for item in rules if item.featureCode == actionType), None)
+        if rule is None or not rule.enabled:
+            raise ApiError("PRICING_RULE_NOT_FOUND", f"功能 {actionType} 尚未配置可用价格", httpStatus=409)
         return rule
 
-    def estimate(self, actionType: str, resourceUsed: int) -> int:
-        """估算费用(整数币)。"""
-        rule = self.rule(actionType)
-        units = (resourceUsed + 999) // 1000  # 千字向上取整
-        # 阶梯倍率
-        rate = 1.0
-        for tier in rule.tiers:
-            if tier.upTo == -1 or units <= tier.upTo:
-                rate = tier.rate
-                break
-        cost = rule.baseCost + int(units * rule.perUnit * rate)
-        return max(rule.minCost, min(rule.maxCost, cost))
+    def quote(
+        self,
+        actionType: str,
+        *,
+        db: Session | None = None,
+        resourceUsed: int = 0,
+        inputTokens: int = 0,
+        outputTokens: int = 0,
+    ) -> PriceQuote:
+        version, _rules = self.catalog(db)
+        rule = self.rule(actionType, db)
+        snapshot = asdict(rule)
+        cost = costFromSnapshot(
+            snapshot,
+            resourceUsed=resourceUsed,
+            inputTokens=inputTokens,
+            outputTokens=outputTokens,
+        )
+        return PriceQuote(
+            featureCode=rule.featureCode,
+            displayName=rule.displayName,
+            billingMode=rule.billingMode,
+            unitName=rule.unitName,
+            estimatedCost=cost,
+            pricingVersion=version,
+            ruleSnapshot=snapshot,
+        )
+
+    def estimate(self, actionType: str, resourceUsed: int, db: Session | None = None) -> int:
+        return self.quote(actionType, db=db, resourceUsed=resourceUsed).estimatedCost
 
     def preview(
         self,
         actionType: str,
         resourceUsed: int,
         currentBalance: int,
+        db: Session | None = None,
+        *,
+        inputTokens: int = 0,
+        outputTokens: int = 0,
     ) -> CostPreview:
-        rule = self.rule(actionType)
-        cost = self.estimate(actionType, resourceUsed)
+        quote = self.quote(
+            actionType,
+            db=db,
+            resourceUsed=resourceUsed,
+            inputTokens=inputTokens,
+            outputTokens=outputTokens,
+        )
         return CostPreview(
             actionType=actionType,
-            displayName=rule.displayName,
+            displayName=quote.displayName,
             resourceUsed=resourceUsed,
-            unitName=rule.unitName,
-            estimatedCost=cost,
+            unitName=quote.unitName,
+            estimatedCost=quote.estimatedCost,
             currentBalance=currentBalance,
-            balanceAfter=max(0, currentBalance - cost),
-            affordable=currentBalance >= cost,
-            tierBreakdown=[{"upTo": t.upTo, "rate": t.rate} for t in rule.tiers],
+            balanceAfter=max(0, currentBalance - quote.estimatedCost),
+            affordable=currentBalance >= quote.estimatedCost,
+            tierBreakdown=[],
+            pricingVersion=quote.pricingVersion,
+            billingMode=quote.billingMode,
+            ruleSnapshot=quote.ruleSnapshot,
         )
+
+    def publicCatalog(self, db: Session | None = None) -> dict[str, Any]:
+        version, rules = self.catalog(db)
+        return {
+            "version": version,
+            "refreshAfterSeconds": 30,
+            "rules": [asdict(rule) for rule in rules if rule.enabled],
+        }
 
 
 _pricingSingleton: PricingService | None = None
 
 
 def getPricingService() -> PricingService:
-    """全局单例。"""
     global _pricingSingleton
     if _pricingSingleton is None:
         _pricingSingleton = PricingService()
     return _pricingSingleton
 
 
-__all__ = ["DEFAULT_RULES", "PricingService", "getPricingService"]
+__all__ = [
+    "BUILTIN_RULES",
+    "BUILTIN_VERSION",
+    "DEFAULT_RULES",
+    "PriceQuote",
+    "PriceRule",
+    "PricingService",
+    "costFromSnapshot",
+    "getPricingService",
+]

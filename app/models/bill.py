@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint, func
+from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -26,6 +26,10 @@ class Bill(Base):
     idempotencyKey: Mapped[str] = mapped_column("idempotency_key", String(64), nullable=False)
     requestHash: Mapped[str] = mapped_column("request_hash", String(64), nullable=False)
     description: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    pricingVersion: Mapped[str | None] = mapped_column("pricing_version", String(40), nullable=True)
+    pricingSnapshot: Mapped[dict | None] = mapped_column("pricing_snapshot", JSON, nullable=True)
+    inputTokens: Mapped[int | None] = mapped_column("input_tokens", BigInteger, nullable=True)
+    outputTokens: Mapped[int | None] = mapped_column("output_tokens", BigInteger, nullable=True)
     preauthExpiresAt: Mapped[datetime] = mapped_column("preauth_expires_at", DateTime, nullable=False)
     settledAt: Mapped[datetime | None] = mapped_column("settled_at", DateTime, nullable=True)
     refundedAt: Mapped[datetime | None] = mapped_column("refunded_at", DateTime, nullable=True)

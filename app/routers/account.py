@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 
 from app.db import getDb
-from app.deps import requireAuth, requireUser
+from app.deps import requireUser
 from app.errors import ApiError, successEnvelope
 from app.middleware.audit_log import auditAction
 from app.models import Bill, Subscription
@@ -77,7 +77,7 @@ def patchMe():
 
 
 @bp.get("/bills")
-@requireAuth
+@requireUser
 def getBills():
     limit = int(request.args.get("limit", 50))
     limit = max(1, min(200, limit))
@@ -103,15 +103,18 @@ def getBills():
             BillOut(
                 billId=r.billId,
                 actionType=r.feature,
-                actionDisplayName=r.feature,
+                actionDisplayName=str((r.pricingSnapshot or {}).get("displayName") or r.feature),
                 estimatedCost=r.estimatedCost,
                 realCost=int(r.actualCost or 0),
-                resourceUsed=0,
+                resourceUsed=int(r.inputTokens or 0) + int(r.outputTokens or 0),
                 balanceBefore=0,
                 balanceAfter=0,
                 status=r.status,
                 taskId="",
                 description=r.description,
+                pricingVersion=r.pricingVersion,
+                inputTokens=r.inputTokens,
+                outputTokens=r.outputTokens,
                 createdAt=r.createdAt,
                 settledAt=r.settledAt,
             )

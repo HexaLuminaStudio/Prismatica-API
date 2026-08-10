@@ -53,6 +53,9 @@ class CostPreview(BaseModel):
     balanceAfter: int
     affordable: bool
     tierBreakdown: list[dict] = Field(default_factory=list)
+    pricingVersion: str = ""
+    billingMode: str = ""
+    ruleSnapshot: dict = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------
@@ -75,6 +78,8 @@ class PreauthResponse(BaseModel):
     billId: str
     estimatedCost: int
     balanceAfter: int
+    pricingVersion: str = ""
+    billingMode: str = ""
 
 
 # ---------------------------------------------------------------------

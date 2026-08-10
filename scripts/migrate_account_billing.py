@@ -43,7 +43,8 @@ def splitStatements(sql: str) -> list[str]:
     return statements
 
 
-def loadSections(path: Path = MIGRATION_PATH) -> tuple[list[str], list[str]]:
+def loadSections(path: Path | None = None) -> tuple[list[str], list[str]]:
+    path = path or MIGRATION_PATH
     sql = path.read_text(encoding="utf-8")
     upMarker = "-- migrate:up"
     downMarker = "-- migrate:down"

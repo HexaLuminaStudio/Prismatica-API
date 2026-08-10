@@ -31,21 +31,28 @@ def _parseCursor(cursor: str | None) -> datetime | None:
 
 def _toItem(row: Bill, displayName: str | None) -> dict[str, Any]:
     """把 Bill ORM 行转为字典(与 schema AdminBillListItem 对齐)。"""
+    snapshot = dict(row.pricingSnapshot or {})
+    inputTokens = int(row.inputTokens) if row.inputTokens is not None else None
+    outputTokens = int(row.outputTokens) if row.outputTokens is not None else None
     return {
         "billId": row.billId,
         "userId": str(row.userId),
         "displayName": displayName,
         "actionType": row.feature,
-        "actionDisplayName": row.feature,
+        "actionDisplayName": str(snapshot.get("displayName") or row.feature),
         "estimatedCost": int(row.estimatedCost or 0),
         "realCost": int(row.actualCost or 0),
-        "resourceUsed": 0,
+        "resourceUsed": (inputTokens or 0) + (outputTokens or 0),
         "balanceBefore": 0,
         "balanceAfter": 0,
         "status": row.status,
         "taskId": "",
         "description": row.description,
         "idempotencyKey": row.idempotencyKey,
+        "pricingVersion": row.pricingVersion,
+        "pricingSnapshot": snapshot,
+        "inputTokens": inputTokens,
+        "outputTokens": outputTokens,
         "createdAt": row.createdAt,
         "settledAt": row.settledAt,
     }

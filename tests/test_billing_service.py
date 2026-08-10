@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import create_engine, select
@@ -21,11 +22,14 @@ from app.models.balance_ledger import BalanceLedger
 from app.models.bill import Bill
 from app.models.idempotency_key import IdempotencyKey
 from app.models.identity import User as IdentityUser
+from app.models.pricing import PricingRuleRecord, PricingVersion
 from app.services.billing_service import (
     estimate,
     preauth,
     refund,
     settle,
+    settleFixed,
+    settleTokens,
 )
 
 
@@ -52,7 +56,7 @@ def _makeUserWithBalance(db: Session, balance: int) -> IdentityUser:
     db.flush()
     # 直接写 IdentityBalance 行
     from app.models.identity import IdentityBalance
-    bal = IdentityBalance(userId=str(user.id), balance=balance, reserved=0)
+    bal = IdentityBalance(userId=int(user.id), balance=balance, reserved=0)
     db.add(bal)
     db.flush()
     return user
@@ -65,17 +69,18 @@ def _makeUserWithBalance(db: Session, balance: int) -> IdentityUser:
 
 def testEstimate_ReturnsAffordability(db: Session) -> None:
     user = _makeUserWithBalance(db, 100)
-    preview = estimate(db, user.id, "freq_analyze", 5000)  # 5 千字
-    assert preview.actionType == "freq_analyze"
-    assert preview.estimatedCost > 0
+    preview = estimate(db, user.id, "analysis_export", 5000)
+    assert preview.actionType == "analysis_export"
+    assert preview.estimatedCost == 5
     assert preview.currentBalance == 100
     assert preview.affordable is True
 
 
-def testEstimate_UnknownActionFallsBack(db: Session) -> None:
+def testEstimate_UnknownActionIsRejected(db: Session) -> None:
     user = _makeUserWithBalance(db, 100)
-    preview = estimate(db, user.id, "unknown_action", 1)
-    assert preview.estimatedCost >= 1  # 兜底规则
+    with pytest.raises(ApiError) as exc:
+        estimate(db, user.id, "unknown_action", 1)
+    assert exc.value.code == "PRICING_RULE_NOT_FOUND"
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +90,7 @@ def testEstimate_UnknownActionFallsBack(db: Session) -> None:
 
 def testPreauth_DeductsBalanceAndReservesAndWritesLedger(db: Session) -> None:
     user = _makeUserWithBalance(db, 500)
-    result = preauth(db, user.id, "kwic_search", 1000, taskId="t1", description="测试")
+    result = preauth(db, user.id, "analysis_export", 1000, taskId="t1", description="测试")
     assert result.estimatedCost > 0
     assert result.balanceAfter == 500 - result.estimatedCost
 
@@ -108,7 +113,7 @@ def testPreauth_DeductsBalanceAndReservesAndWritesLedger(db: Session) -> None:
 def testPreauth_InsufficientBalanceRaises(db: Session) -> None:
     user = _makeUserWithBalance(db, 1)
     with pytest.raises(ApiError) as exc:
-        preauth(db, user.id, "dependency_parse", 50000)
+        preauth(db, user.id, "analysis_export", 50000)
     assert exc.value.code == "INSUFFICIENT_BALANCE"
 
 
@@ -120,12 +125,12 @@ def testPreauth_InsufficientBalanceRaises(db: Session) -> None:
 def testPreauth_IdempotencyKeyReturnsSameBill(db: Session) -> None:
     user = _makeUserWithBalance(db, 500)
     r1 = preauth(
-        db, user.id, "kwic_search", 1000, taskId="t1", idempotencyKey="key-001"
+        db, user.id, "analysis_export", 1000, taskId="t1", idempotencyKey="key-001"
     )
     db.commit()
 
     r2 = preauth(
-        db, user.id, "kwic_search", 1000, taskId="t1", idempotencyKey="key-001"
+        db, user.id, "analysis_export", 1000, taskId="t1", idempotencyKey="key-001"
     )
     # r2 应该复用 r1 的 bill_id
     assert r2.billId == r1.billId
@@ -139,12 +144,12 @@ def testPreauth_IdempotencyKeyReturnsSameBill(db: Session) -> None:
 def testPreauth_IdempotencyKeyBodyMismatchRaises409(db: Session) -> None:
     user = _makeUserWithBalance(db, 500)
     preauth(
-        db, user.id, "kwic_search", 1000, taskId="t1", idempotencyKey="key-002"
+        db, user.id, "analysis_export", 1000, taskId="t1", idempotencyKey="key-002"
     )
     db.commit()
     with pytest.raises(ApiError) as exc:
         preauth(
-            db, user.id, "kwic_search", 1000, taskId="t2", idempotencyKey="key-002"
+            db, user.id, "analysis_export", 1000, taskId="t2", idempotencyKey="key-002"
         )
     # 2026-08-07 P0-A M9 错误码语义化:统一为 IDEMPOTENCY_CONFLICT(原 CONFLICT)
     assert exc.value.code == "IDEMPOTENCY_CONFLICT"
@@ -157,7 +162,7 @@ def testPreauth_IdempotencyKeyBodyMismatchRaises409(db: Session) -> None:
 
 def testSettle_FullSettleConsumesAndReleasesReserve(db: Session) -> None:
     user = _makeUserWithBalance(db, 500)
-    preauthResp = preauth(db, user.id, "kwic_search", 1000)
+    preauthResp = preauth(db, user.id, "analysis_export", 1000)
     db.commit()
     estimated = preauthResp.estimatedCost
     500 - estimated  # 全额结算不退还
@@ -177,10 +182,10 @@ def testSettle_FullSettleConsumesAndReleasesReserve(db: Session) -> None:
 
 def testSettle_PartialSettleRefundsDifference(db: Session) -> None:
     user = _makeUserWithBalance(db, 500)
-    preauthResp = preauth(db, user.id, "kwic_search", 5000)
+    preauthResp = preauth(db, user.id, "analysis_export", 5000)
     db.commit()
     estimated = preauthResp.estimatedCost
-    realCost = max(1, estimated - 5)  # 实际只用了 estimated - 5
+    realCost = max(1, estimated - 2)
     result = settle(db, preauthResp.billId, realCost=realCost)
     db.commit()
     assert result.refunded == estimated - realCost
@@ -193,7 +198,7 @@ def testSettle_PartialSettleRefundsDifference(db: Session) -> None:
 
 def testSettle_RealCostOutOfRangeRaises(db: Session) -> None:
     user = _makeUserWithBalance(db, 500)
-    preauthResp = preauth(db, user.id, "kwic_search", 1000)
+    preauthResp = preauth(db, user.id, "analysis_export", 1000)
     db.commit()
     with pytest.raises(ApiError) as exc:
         settle(db, preauthResp.billId, realCost=preauthResp.estimatedCost + 1)
@@ -205,13 +210,68 @@ def testSettle_RealCostOutOfRangeRaises(db: Session) -> None:
 
 def testSettle_NotPendingRaises(db: Session) -> None:
     user = _makeUserWithBalance(db, 500)
-    preauthResp = preauth(db, user.id, "kwic_search", 1000)
+    preauthResp = preauth(db, user.id, "analysis_export", 1000)
     db.commit()
     settle(db, preauthResp.billId, realCost=preauthResp.estimatedCost)
     db.commit()
     with pytest.raises(ApiError) as exc:
         settle(db, preauthResp.billId, realCost=1)
     assert exc.value.code == "BILL_ALREADY_SETTLED"
+
+
+def testSettleFixed_IsIdempotentForClientRetry(db: Session) -> None:
+    user = _makeUserWithBalance(db, 500)
+    preauthResp = preauth(db, user.id, "analysis_export", 1)
+    first = settleFixed(db, preauthResp.billId)
+    second = settleFixed(db, preauthResp.billId)
+    assert first.realCost == second.realCost == 5
+    assert first.balanceAfter == second.balanceAfter == 495
+
+
+def testSettleTokens_KeepsPreauthPriceSnapshotAfterPublish(db: Session) -> None:
+    user = _makeUserWithBalance(db, 500)
+    preauthResp = preauth(
+        db,
+        user.id,
+        "ai_chat",
+        0,
+        estimatedInputTokens=2_000,
+        estimatedOutputTokens=2_000,
+    )
+    assert preauthResp.pricingVersion == "2026.08.10-initial"
+
+    version = PricingVersion(
+        versionCode="test-new-price",
+        status="published",
+        note="test",
+        createdBy="test",
+        publishedBy="test",
+        publishedAt=datetime.now(UTC).replace(tzinfo=None),
+    )
+    db.add(version)
+    db.flush()
+    db.add(
+        PricingRuleRecord(
+            versionId=version.versionId,
+            featureCode="ai_chat",
+            displayName="AI 聊天",
+            billingMode="token",
+            unitName="千 Token",
+            inputTokenCostPer1K=50,
+            outputTokenCostPer1K=80,
+            minCost=1,
+            maxCost=1_000_000,
+            enabled=True,
+        )
+    )
+    db.commit()
+
+    result = settleTokens(db, preauthResp.billId, inputTokens=100, outputTokens=100)
+    assert result.realCost == 3
+    bill = db.execute(select(Bill).where(Bill.billId == preauthResp.billId)).scalar_one()
+    assert bill.pricingVersion == "2026.08.10-initial"
+    assert bill.inputTokens == 100
+    assert bill.outputTokens == 100
 
 
 # ---------------------------------------------------------------------------
@@ -221,7 +281,7 @@ def testSettle_NotPendingRaises(db: Session) -> None:
 
 def testRefund_ReturnsAllBalanceAndReleasesReserve(db: Session) -> None:
     user = _makeUserWithBalance(db, 500)
-    preauthResp = preauth(db, user.id, "kwic_search", 1000)
+    preauthResp = preauth(db, user.id, "analysis_export", 1000)
     db.commit()
     refund(db, preauthResp.billId)
     db.commit()
@@ -246,7 +306,7 @@ def testRefund_ReturnsAllBalanceAndReleasesReserve(db: Session) -> None:
 
 def testRefund_AlreadySettledRaises(db: Session) -> None:
     user = _makeUserWithBalance(db, 500)
-    preauthResp = preauth(db, user.id, "kwic_search", 1000)
+    preauthResp = preauth(db, user.id, "analysis_export", 1000)
     db.commit()
     settle(db, preauthResp.billId, realCost=preauthResp.estimatedCost)
     db.commit()

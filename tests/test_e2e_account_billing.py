@@ -218,7 +218,7 @@ def test_e2e_preauth_settle_full_flow(client) -> None:
     # 1) estimate
     r = client.post(
         "/v1/billing/estimate",
-        json={"actionType": "kwic_search", "resourceUsed": 1000},
+        json={"actionType": "analysis_export", "resourceUsed": 1000},
         headers=bearer,
     )
     assert r.status_code == 200
@@ -228,11 +228,28 @@ def test_e2e_preauth_settle_full_flow(client) -> None:
     # 余额为 0,preauth 应报 INSUFFICIENT_BALANCE
     r = client.post(
         "/v1/billing/preauth",
-        json={"actionType": "kwic_search", "resourceUsed": 1000},
+        json={"actionType": "analysis_export", "resourceUsed": 1000},
         headers=bearer,
     )
     assert r.status_code == 402
     assert r.get_json()["code"] == "INSUFFICIENT_BALANCE"
+
+
+def test_public_pricing_catalog_exposes_refresh_contract(client) -> None:
+    response = client.get("/v1/pricing/catalog")
+    assert response.status_code == 200
+    data = response.get_json()["data"]
+    assert data["refreshAfterSeconds"] == 30
+    assert any(rule["featureCode"] == "analysis_export" for rule in data["rules"])
+
+
+def test_platform_ai_requires_user_authentication(client) -> None:
+    response = client.post(
+        "/v1/ai/chat",
+        json={"messages": [{"role": "user", "content": "测试"}]},
+        headers={"Idempotency-Key": "anonymous-ai"},
+    )
+    assert response.status_code == 401
 
 
 def test_e2e_idempotency_key_returns_same_bill(client, monkeypatch) -> None:
@@ -267,7 +284,7 @@ def test_e2e_idempotency_key_returns_same_bill(client, monkeypatch) -> None:
     headers = dict(bearer, **{"Idempotency-Key": "e2e-idem-1"})
     r1 = client.post(
         "/v1/billing/preauth",
-        json={"actionType": "kwic_search", "resourceUsed": 1000},
+        json={"actionType": "analysis_export", "resourceUsed": 1000},
         headers=headers,
     )
     assert r1.status_code == 200
@@ -275,7 +292,7 @@ def test_e2e_idempotency_key_returns_same_bill(client, monkeypatch) -> None:
 
     r2 = client.post(
         "/v1/billing/preauth",
-        json={"actionType": "kwic_search", "resourceUsed": 1000},
+        json={"actionType": "analysis_export", "resourceUsed": 1000},
         headers=headers,
     )
     assert r2.status_code == 200

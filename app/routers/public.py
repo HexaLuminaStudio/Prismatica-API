@@ -5,8 +5,10 @@ from flask import Blueprint, Response, current_app, jsonify
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.config import getSettings
+from app.db import getDb
 from app.errors import successEnvelope
 from app.health import buildHealthPayload
+from app.services.pricing import getPricingService
 
 bp = Blueprint("public", __name__)
 
@@ -20,6 +22,13 @@ def healthz():
 @bp.get("/metrics")
 def metrics():
     return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
+
+
+@bp.get("/v1/pricing/catalog")
+def pricingCatalog():
+    """公开价格目录；客户端按 version 每 30 秒检查更新。"""
+    with getDb() as db:
+        return successEnvelope(getPricingService().publicCatalog(db))
 
 
 @bp.get("/openapi.json")

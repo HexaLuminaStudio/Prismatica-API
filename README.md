@@ -22,6 +22,7 @@ cp .env.example .env
 
 # 3. 准备空 MySQL 数据库并执行版本化迁移（可安全重复运行）
 python -m scripts.migrate_account_billing
+python -m scripts.migrate_dynamic_pricing
 python -m scripts.db_preflight
 
 # 4. 启动（P0-A M2-M9 完成前，旧 ORM 尚未适配新 schema）
@@ -87,7 +88,10 @@ deploy/
 | Billing | `POST /v1/billing/estimate` | JWT | 费用预估(只读) |
 | Billing | `POST /v1/billing/preauth` | JWT + Idempotency-Key | 预占 + pending bill |
 | Billing | `POST /v1/billing/settle` | JWT | 结算(差额返还) |
+| Billing | `POST /v1/billing/commit-fixed` | JWT | 固定价任务按预授权价格快照结算 |
 | Billing | `POST /v1/billing/refund` | JWT | 全额退款 |
+| 定价 | `GET /v1/pricing/catalog` | 无 | 当前公开价格目录（客户端约 30 秒刷新） |
+| AI | `POST /v1/ai/chat` | JWT + Idempotency-Key | 平台密钥代理调用，按真实输入/输出 Token 结算 |
 | 资源 | `POST /v1/resources/bootstrap` | JWT + Device + 有效订阅 | 签发短期数据库下载清单 |
 | 资源 | `POST /v1/resources/official-token` | `X-Device-Id`（10 次/小时/IP） | 后端官方账号代登录并返回 HSK / Global Token |
 | 资源 | `GET /v1/resources/download/{resourceKey}` | 短期资源票据 | 后端流式转发数据库文件 |
@@ -98,6 +102,9 @@ deploy/
 | 管理 | `POST /admin/logout` | 无 | 清除 cookie |
 | 管理 | `GET /admin/me` | Cookie 或 X-Admin-Token | 当前管理员信息 |
 | 管理 | `POST /admin/me/change-password` | Cookie | 修改自身密码 |
+| 管理 | `GET /v1/admin/pricing` | Cookie | 查看当前价格与发布历史 |
+| 管理 | `POST /v1/admin/pricing/drafts` | owner Cookie | 创建完整价格草稿 |
+| 管理 | `POST /v1/admin/pricing/{versionCode}/publish` | owner Cookie | 发布新价格，新请求立即生效 |
 | 管理 | `GET /admin/health` | 无 | 后台健康检查 |
 | 管理 | `GET /v1/admin/users` | Cookie | 用户列表(分页 + 模糊搜索) |
 | 管理 | `GET /v1/admin/users/{userId}` | Cookie | 用户详情(含 device 数) |
@@ -143,6 +150,10 @@ pytest --cov=app --cov-fail-under=60
 - `ADMIN_TOKEN`(运营端 X-Admin-Token,兼容 curl)
 - `ADMIN_COOKIE_SECRET`(管理后台 cookie HMAC 签名,至少 32 字节,与管理后台专用)
 - `DB_PASSWORD`
+- `AI_API_KEY`（平台统一持有的供应商密钥，禁止下发到客户端）
+
+平台 AI 还可通过 `AI_BASE_URL`、`AI_MODEL_CHAT`、`AI_MAX_OUTPUT_TOKENS` 调整供应商与模型。
+供应商响应必须包含可核验的 Token usage；缺少 usage 时请求失败并释放预授权，不进行估算扣费。
 
 受保护资源下载还必须配置：
 
