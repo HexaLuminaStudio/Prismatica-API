@@ -242,6 +242,8 @@ def test_public_pricing_catalog_exposes_refresh_contract(client) -> None:
     assert response.status_code == 200
     data = response.get_json()["data"]
     assert data["refreshAfterSeconds"] == 30
+    assert data["state"] == "active"
+    assert data["source"] in {"published", "builtin"}
     assert any(rule["featureCode"] == "analysis_export" for rule in data["rules"])
 
 

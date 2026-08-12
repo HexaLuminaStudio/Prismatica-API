@@ -45,6 +45,9 @@ def testUnknownOrLocalAction_IsNeverSilentlyCharged() -> None:
 def testPublicCatalog_AdvertisesThirtySecondRefresh() -> None:
     catalog = getPricingService().publicCatalog()
     assert catalog["refreshAfterSeconds"] == 30
+    assert catalog["state"] == "active"
+    assert catalog["source"] == "builtin"
+    assert catalog["effectiveAt"] is None
     assert {rule["featureCode"] for rule in catalog["rules"]} >= {
         "analysis_export",
         "ai_chat",

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.db import Base
 from app.models.pricing import PricingVersion
 from app.services import admin_pricing_service as service
+from app.services.pricing import getPricingService
 
 
 @pytest.fixture()
@@ -69,6 +70,22 @@ def testPublishPricingVersion_ArchivesOldAndActivatesNew(pricingDb) -> None:
     with pricingDb() as db:
         versions = db.execute(select(PricingVersion).order_by(PricingVersion.versionId)).scalars().all()
         assert [version.status for version in versions] == ["retired", "published"]
+
+
+def testPublishedPricingCatalog_ExposesCurrentStatus(pricingDb) -> None:
+    draft = service.createPricingDraft("root", _rules(9), "状态页测试")
+    service.publishPricingVersion(draft["versionCode"], "root")
+
+    with pricingDb() as db:
+        catalog = getPricingService().publicCatalog(db)
+
+    assert catalog["version"] == draft["versionCode"]
+    assert catalog["state"] == "active"
+    assert catalog["source"] == "published"
+    assert catalog["effectiveAt"]
+    assert next(
+        rule for rule in catalog["rules"] if rule["featureCode"] == "analysis_export"
+    )["fixedCost"] == 9
 
 
 def testFixedDraft_NormalizesMinimumAndMaximum(pricingDb) -> None:

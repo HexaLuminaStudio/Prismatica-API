@@ -92,7 +92,7 @@ deploy/
 | Billing | `POST /v1/billing/commit-fixed` | JWT | 固定价任务按预授权价格快照结算 |
 | Billing | `POST /v1/billing/commit-metered` | JWT | 按量任务按预授权资源量与价格快照结算 |
 | Billing | `POST /v1/billing/refund` | JWT | 全额退款 |
-| 定价 | `GET /v1/pricing/catalog` | 无 | 当前公开价格目录（客户端约 30 秒刷新） |
+| 定价 | `GET /v1/pricing/catalog` | 无 | 当前生效价格状态、来源、生效时间与规则（客户端约 30 秒刷新） |
 | AI | `POST /v1/ai/chat` | JWT + Idempotency-Key | 平台密钥代理调用，按真实输入/输出 Token 结算 |
 | AI | `POST /v1/ai/chat/stream` | JWT + Idempotency-Key | SSE 返回阶段进度与正文增量，最终按供应商 usage 结算 |
 | 资源 | `POST /v1/resources/bootstrap` | JWT + Device + 有效订阅 | 签发短期数据库下载清单 |

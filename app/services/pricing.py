@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import inspect, select
@@ -202,7 +203,11 @@ class PricingService:
             enabled=bool(record.enabled),
         )
 
-    def catalog(self, db: Session | None = None) -> tuple[str, list[PriceRule]]:
+    def catalogStatus(
+        self,
+        db: Session | None = None,
+    ) -> tuple[str, list[PriceRule], str, datetime | None]:
+        """返回当前实际参与报价的目录、来源与生效时间。"""
         if db is not None:
             version = self._publishedVersion(db)
             if version is not None:
@@ -211,8 +216,17 @@ class PricingService:
                     .where(PricingRuleRecord.versionId == version.versionId)
                     .order_by(PricingRuleRecord.ruleId.asc())
                 ).scalars().all()
-                return version.versionCode, [self._recordToRule(record) for record in records]
-        return BUILTIN_VERSION, list(BUILTIN_RULES.values())
+                return (
+                    version.versionCode,
+                    [self._recordToRule(record) for record in records],
+                    "published",
+                    version.publishedAt,
+                )
+        return BUILTIN_VERSION, list(BUILTIN_RULES.values()), "builtin", None
+
+    def catalog(self, db: Session | None = None) -> tuple[str, list[PriceRule]]:
+        version, rules, _source, _effectiveAt = self.catalogStatus(db)
+        return version, rules
 
     def rule(self, actionType: str, db: Session | None = None) -> PriceRule:
         _version, rules = self.catalog(db)
@@ -285,9 +299,12 @@ class PricingService:
         )
 
     def publicCatalog(self, db: Session | None = None) -> dict[str, Any]:
-        version, rules = self.catalog(db)
+        version, rules, source, effectiveAt = self.catalogStatus(db)
         return {
             "version": version,
+            "state": "active",
+            "source": source,
+            "effectiveAt": effectiveAt.isoformat() if effectiveAt is not None else None,
             "refreshAfterSeconds": 30,
             "rules": [asdict(rule) for rule in rules if rule.enabled],
         }
