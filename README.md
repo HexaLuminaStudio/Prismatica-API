@@ -94,6 +94,7 @@ deploy/
 | Billing | `POST /v1/billing/refund` | JWT | 全额退款 |
 | 定价 | `GET /v1/pricing/catalog` | 无 | 当前公开价格目录（客户端约 30 秒刷新） |
 | AI | `POST /v1/ai/chat` | JWT + Idempotency-Key | 平台密钥代理调用，按真实输入/输出 Token 结算 |
+| AI | `POST /v1/ai/chat/stream` | JWT + Idempotency-Key | SSE 返回阶段进度与正文增量，最终按供应商 usage 结算 |
 | 资源 | `POST /v1/resources/bootstrap` | JWT + Device + 有效订阅 | 签发短期数据库下载清单 |
 | 资源 | `POST /v1/resources/official-token` | `X-Device-Id`（10 次/小时/IP） | 后端官方账号代登录并返回 HSK / Global Token |
 | 资源 | `GET /v1/resources/download/{resourceKey}` | 短期资源票据 | 后端流式转发数据库文件 |
@@ -156,6 +157,8 @@ pytest --cov=app --cov-fail-under=60
 
 平台 AI 还可通过 `AI_BASE_URL`、`AI_MODEL_CHAT`、`AI_MAX_OUTPUT_TOKENS` 调整供应商与模型。
 供应商响应必须包含可核验的 Token usage；缺少 usage 时请求失败并释放预授权，不进行估算扣费。
+流式端点依次返回 `progress`、`delta`、`completed` 或 `error` 事件，并透传 `heartbeat`
+保持长连接；客户端断开、上游失败或最终 usage 缺失时自动释放预授权。
 
 受保护资源下载还必须配置：
 
