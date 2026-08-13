@@ -9,8 +9,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
-from app.errors import ApiError
-from app.models.pricing import PricingRuleRecord, PricingVersion
+from app.models.pricing import PricingVersion
 from app.services import admin_pricing_service as service
 from app.services.pricing import getPricingService
 
@@ -94,68 +93,3 @@ def testFixedDraft_NormalizesMinimumAndMaximum(pricingDb) -> None:
     fixed = next(rule for rule in result["rules"] if rule["featureCode"] == "analysis_export")
     assert fixed["minCost"] == 7
     assert fixed["maxCost"] == 7
-
-
-@pytest.mark.parametrize("featureCode", ["hsk_download", "global_download"])
-def testDownloadFeatureCannotBeAddedBackToPricing(pricingDb, featureCode: str) -> None:
-    rule = {
-        "featureCode": featureCode,
-        "displayName": "数据库下载",
-        "billingMode": "metered",
-        "unitName": "千条",
-        "unitSize": 1_000,
-        "perUnitCost": 3,
-        "minCost": 3,
-        "maxCost": 1_000_000,
-        "enabled": True,
-    }
-
-    with pytest.raises(ApiError) as captured:
-        service.createPricingDraft("root", [rule], "不应允许")
-
-    assert captured.value.code == "PRICING_RULE_INVALID"
-
-
-def testLegacyPublishedDownloadPricesAreHidden(pricingDb) -> None:
-    with pricingDb() as db:
-        version = PricingVersion(
-            versionCode="legacy-download-pricing",
-            status="published",
-            note="旧下载价格",
-            createdBy="migration",
-        )
-        db.add(version)
-        db.flush()
-        db.add_all(
-            [
-                PricingRuleRecord(
-                    versionId=version.versionId,
-                    featureCode="hsk_download",
-                    displayName="HSK 语料下载",
-                    billingMode="metered",
-                    unitName="千条",
-                    unitSize=1_000,
-                    perUnitCost=3,
-                    minCost=3,
-                    maxCost=1_000_000,
-                    enabled=True,
-                ),
-                PricingRuleRecord(
-                    versionId=version.versionId,
-                    featureCode="hsk_essay_export",
-                    displayName="HSK 作文导出",
-                    billingMode="metered",
-                    unitName="百篇",
-                    unitSize=100,
-                    perUnitCost=1,
-                    minCost=1,
-                    maxCost=1_000_000,
-                    enabled=True,
-                ),
-            ]
-        )
-        db.commit()
-
-    overview = service.getPricingOverview()
-
-    assert [rule["featureCode"] for rule in overview["rules"]] == ["hsk_essay_export"]

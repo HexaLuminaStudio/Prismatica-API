@@ -10,7 +10,7 @@ from sqlalchemy import select
 from app.db import getDb
 from app.errors import ApiError
 from app.models.pricing import PricingRuleRecord, PricingVersion
-from app.services.pricing import NON_BILLABLE_FEATURES, getPricingService
+from app.services.pricing import getPricingService
 
 ALLOWED_MODES = {"fixed", "token", "metered"}
 
@@ -40,8 +40,6 @@ def _validateRule(raw: dict[str, Any]) -> dict[str, Any]:
     unitName = str(raw.get("unitName", "")).strip()
     if not featureCode or len(featureCode) > 64 or not featureCode.replace("_", "").isalnum():
         raise ApiError("PRICING_RULE_INVALID", "功能编码只能包含字母、数字和下划线")
-    if featureCode in NON_BILLABLE_FEATURES:
-        raise ApiError("PRICING_RULE_INVALID", f"{featureCode} 是免费下载功能，不能配置价格")
     if not displayName or len(displayName) > 80:
         raise ApiError("PRICING_RULE_INVALID", f"{featureCode} 的显示名称无效")
     if billingMode not in ALLOWED_MODES:
@@ -109,11 +107,7 @@ def getPricingOverview() -> dict[str, Any]:
                 .where(PricingRuleRecord.versionId == active.versionId)
                 .order_by(PricingRuleRecord.ruleId.asc())
             ).scalars().all()
-            rules = [
-                _serializeRule(record)
-                for record in records
-                if record.featureCode not in NON_BILLABLE_FEATURES
-            ]
+            rules = [_serializeRule(record) for record in records]
             activeVersion = active.versionCode
         return {
             "activeVersion": activeVersion,

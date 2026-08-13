@@ -175,7 +175,7 @@ pytest --cov=app --cov-fail-under=60
 `OFFICIAL_HSK_USERNAME`、`OFFICIAL_HSK_PASSWORD`、`OFFICIAL_GLOBAL_USERNAME` 和
 `OFFICIAL_GLOBAL_PASSWORD`；真实值只保存在后端环境变量中，禁止写入桌面端或提交到仓库。
 
-数据库文件与 HSK / Global 语料下载不计费，也不要求试用或订阅权限；收费只发生在导出结果等明确的计费动作。内置订阅计划仍可用于其他产品权益，管理员可通过 `POST /v1/admin/users/{userId}/subscriptions` 管理用户订阅。
+启动所需的 HSK 数据库文件面向所有有效登录用户免费提供，不要求试用或订阅权限。HSK / Global 检索结果的单项与批量下载继续按当前价格目录报价、预占和结算；失败或取消会释放预占。内置订阅计划仍可用于其他产品权益，管理员可通过 `POST /v1/admin/users/{userId}/subscriptions` 管理用户订阅。
 
 ## 管理后台登录(2026-08-05 M2)
 

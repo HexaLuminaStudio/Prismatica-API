@@ -41,12 +41,7 @@ from app.schemas.billing import (
     RefundResponse,
     SettleResponse,
 )
-from app.services.pricing import (
-    NON_BILLABLE_FEATURES,
-    PricingService,
-    costFromSnapshot,
-    getPricingService,
-)
+from app.services.pricing import PricingService, costFromSnapshot, getPricingService
 
 IDEMPOTENCY_WINDOW_HOURS = 24
 
@@ -501,12 +496,6 @@ def settleMetered(db: Session, billId: str) -> SettleResponse:
     bill = db.execute(select(Bill).where(Bill.billId == billId)).scalar_one_or_none()
     if bill is None:
         raise ApiError("BILL_NOT_FOUND", httpStatus=409)
-    if bill.feature in NON_BILLABLE_FEATURES and bill.status != "settled":
-        raise ApiError(
-            "PRICING_RULE_NOT_FOUND",
-            "数据库下载已调整为免费，原下载预授权不会结算",
-            httpStatus=409,
-        )
     snapshot = dict(bill.pricingSnapshot or {})
     if snapshot.get("billingMode") != "metered":
         raise ApiError("PRICING_RULE_INVALID", "该账单不是按量计费任务", httpStatus=409)
