@@ -6,14 +6,28 @@ from flask import Flask, g, jsonify
 
 from app import deps
 from app.errors import ApiError, registerErrorHandlers
-from app.models import RevokedToken
+from app.models import IdentityDevice, RevokedToken
 from app.security.jwt import create_access_token
 from app.services.token_revocation_service import revoke_jti
 
 
+class _FakeScalarResult:
+    def __init__(self, value) -> None:
+        self.value = value
+
+    def scalar_one_or_none(self):
+        return self.value
+
+
 class FakeDb:
-    def __init__(self, revokedJtis: set[str] | None = None) -> None:
+    def __init__(
+        self,
+        revokedJtis: set[str] | None = None,
+        *,
+        activeDevice: bool = True,
+    ) -> None:
         self.revokedJtis = revokedJtis or set()
+        self.activeDevice = activeDevice
         self.added: list[object] = []
 
     def get(self, model, key):
@@ -26,6 +40,20 @@ class FakeDb:
                 expiresAt=datetime.now(UTC).replace(tzinfo=None) + timedelta(minutes=5),
             )
         return None
+
+    def execute(self, _statement):
+        if not self.activeDevice:
+            return _FakeScalarResult(None)
+        return _FakeScalarResult(
+            IdentityDevice(
+                id=1,
+                userId=42,
+                deviceId="device-42",
+                deviceName="test",
+                platform="test",
+                status="active",
+            )
+        )
 
     def add(self, value) -> None:
         self.added.append(value)
@@ -59,6 +87,20 @@ def testAuthenticateUserTokenRejectsRevokedJti() -> None:
 
     with pytest.raises(ApiError) as captured:
         deps.authenticateUserToken(token, "device-42", FakeDb({"jti-revoked"}))
+
+    assert captured.value.code == "TOKEN_REVOKED"
+    assert captured.value.httpStatus == 401
+
+
+def testAuthenticateUserTokenRejectsRevokedDevice() -> None:
+    token = create_access_token(42, "device-42", "free", "jti-device-revoked")
+
+    with pytest.raises(ApiError) as captured:
+        deps.authenticateUserToken(
+            token,
+            "device-42",
+            FakeDb(activeDevice=False),
+        )
 
     assert captured.value.code == "TOKEN_REVOKED"
     assert captured.value.httpStatus == 401

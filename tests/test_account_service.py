@@ -188,7 +188,7 @@ def testPatchMe_InactiveUserRaisesForbidden(db: Session) -> None:
 # ---------------------------------------------------------------------------
 
 
-def testListDevices_ActiveAndRevokedCounts(db: Session) -> None:
+def testListDevices_ReturnsOnlyActiveDevices(db: Session) -> None:
     user = _makeUser(db, "8")
     _makeDevice(db, user, "device-aaa")
     _makeDevice(db, user, "device-bbb")
@@ -200,7 +200,8 @@ def testListDevices_ActiveAndRevokedCounts(db: Session) -> None:
     items, maxActive, activeCount = listDevices(db, user.id, currentDevicePublicId="device-aaa")
     assert maxActive == MAX_ACTIVE_DEVICES == 3
     assert activeCount == 2
-    assert len(items) == 3
+    assert len(items) == 2
+    assert all(d.status == "active" for d in items)
     # isCurrent 标记
     currents = [d for d in items if d.isCurrent]
     assert len(currents) == 1

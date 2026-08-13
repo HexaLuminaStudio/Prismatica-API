@@ -202,6 +202,17 @@ def test_e2e_list_devices_and_revoke(client) -> None:
     # 撤销 d2
     r = client.delete(f"/v1/account/devices/{d2Id}", headers=bearer)
     assert r.status_code == 200
+    # 刷新列表后只保留仍处于登录状态的设备。
+    r = client.get("/v1/account/devices", headers=bearer)
+    assert [item["devicePublicId"] for item in r.get_json()["data"]["items"]] == ["d1"]
+    # 已签发给 d2 的 access_token 也必须立即失效，而不是等自然过期。
+    d2Bearer = {
+        "Authorization": f"Bearer {r2.get_json()['data']['tokens']['accessToken']}",
+        "X-Device-Id": "d2",
+    }
+    r = client.get("/v1/account/me", headers=d2Bearer)
+    assert r.status_code == 401
+    assert r.get_json()["code"] == "TOKEN_REVOKED"
     # d2 的 refresh_token 应该失效(revokeDevice 会撤销 refresh + jti 黑名单)
     d2_refresh = r2.get_json()["data"]["tokens"]["refreshToken"]
     r = client.post("/v1/auth/refresh", json={"refreshToken": d2_refresh})

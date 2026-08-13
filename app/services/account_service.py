@@ -162,13 +162,16 @@ def listDevices(
     devices = (
         db.execute(
             select(IdentityDevice)
-            .where(IdentityDevice.userId == userId)
+            .where(
+                IdentityDevice.userId == userId,
+                IdentityDevice.status == "active",
+            )
             .order_by(IdentityDevice.lastSeenAt.desc())
         )
         .scalars()
         .all()
     )
-    activeCount = sum(1 for d in devices if d.status == "active")
+    activeCount = len(devices)
     return _toDeviceOuts(devices, currentDevicePublicId), MAX_ACTIVE_DEVICES, activeCount
 
 

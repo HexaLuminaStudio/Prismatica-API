@@ -8,12 +8,13 @@ from typing import Any
 
 import jwt as pyjwt
 from flask import g, request
+from sqlalchemy import select
 
 from app.config import getSettings
 from app.db import getDb
 from app.errors import ApiError
 from app.middleware.admin_session import readSessionCookie
-from app.models import AdminUser, RevokedToken
+from app.models import AdminUser, IdentityDevice, RevokedToken
 from app.security.jwt import decodeAccessToken
 
 _settings = getSettings()
@@ -53,6 +54,20 @@ def authenticateUserToken(
         raise ApiError("UNAUTHORIZED", "登录凭证 claims 不完整", httpStatus=401)
     if db.get(RevokedToken, jti) is not None:
         raise ApiError("TOKEN_REVOKED", httpStatus=401)
+
+    activeDevice = db.execute(
+        select(IdentityDevice).where(
+            IdentityDevice.userId == int(subject),
+            IdentityDevice.deviceId == claimedDeviceId,
+            IdentityDevice.status == "active",
+        )
+    ).scalar_one_or_none()
+    if activeDevice is None:
+        raise ApiError(
+            "TOKEN_REVOKED",
+            "该设备的登录已被撤销，请重新登录",
+            httpStatus=401,
+        )
 
     return UserAuthContext(
         userId=int(subject),
