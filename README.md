@@ -95,7 +95,7 @@ deploy/
 | 定价 | `GET /v1/pricing/catalog` | 无 | 当前生效价格状态、来源、生效时间与规则（客户端约 30 秒刷新） |
 | AI | `POST /v1/ai/chat` | JWT + Idempotency-Key | 平台密钥代理调用，按真实输入/输出 Token 结算 |
 | AI | `POST /v1/ai/chat/stream` | JWT + Idempotency-Key | SSE 返回阶段进度与正文增量，最终按供应商 usage 结算 |
-| 资源 | `POST /v1/resources/bootstrap` | JWT + Device + 有效订阅 | 签发短期数据库下载清单 |
+| 资源 | `POST /v1/resources/bootstrap` | JWT + Device | 为所有有效账号签发免费数据库下载清单 |
 | 资源 | `POST /v1/resources/official-token` | `X-Device-Id`（10 次/小时/IP） | 后端官方账号代登录并返回 HSK / Global Token |
 | 资源 | `GET /v1/resources/download/{resourceKey}` | 短期资源票据 | 后端流式转发数据库文件 |
 | Admin | `POST /v1/admin/grant` | X-Admin-Token | 手动赠送余额 |
@@ -168,14 +168,14 @@ pytest --cov=app --cov-fail-under=60
 - `HSK_CORPUS_SHA256` / `HSK_LOCAL_CORPUS_SHA256`：正式文件 SHA-256。
 - `HSK_CORPUS_VERSION` / `HSK_LOCAL_CORPUS_VERSION`：更新文件时同步递增。
 
-`/v1/resources/bootstrap` 会实时校验账号、设备和有效订阅，下载票据默认 180 秒过期。
+`/v1/resources/bootstrap` 会实时校验账号和设备，所有有效登录用户都可下载数据库文件，下载票据默认 180 秒过期。
 桌面客户端只能看到 PrismaticaAPI 网关地址，不会收到真实源站 URL。第一阶段仍由后端代理现有源站；上线后还需把对象存储改为私有读取，才能同时关闭历史公开直链。
 
 首次启动引导的“使用官方账号”由 `/v1/resources/official-token` 提供。生产环境需要设置
 `OFFICIAL_HSK_USERNAME`、`OFFICIAL_HSK_PASSWORD`、`OFFICIAL_GLOBAL_USERNAME` 和
 `OFFICIAL_GLOBAL_PASSWORD`；真实值只保存在后端环境变量中，禁止写入桌面端或提交到仓库。
 
-资源下载权限授予所有未过期的 `active` 订阅。内置计划为 `trial`、`pro_monthly` 和 `team_monthly`；管理员可通过 `POST /v1/admin/users/{userId}/subscriptions` 为尚无有效订阅的用户开通其中一个计划。
+数据库文件与 HSK / Global 语料下载不计费，也不要求试用或订阅权限；收费只发生在导出结果等明确的计费动作。内置订阅计划仍可用于其他产品权益，管理员可通过 `POST /v1/admin/users/{userId}/subscriptions` 管理用户订阅。
 
 ## 管理后台登录(2026-08-05 M2)
 

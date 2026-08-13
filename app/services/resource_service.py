@@ -1,4 +1,4 @@
-"""HSK 作文数据库资源目录、订阅授权与短期清单服务。"""
+"""HSK 作文数据库资源目录、账号设备授权与短期清单服务。"""
 
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ from app.config import Settings, getSettings
 from app.errors import ApiError
 from app.models.identity import IdentityDevice
 from app.models.identity import User as IdentityUser
-from app.models.subscription import Subscription
 from app.schemas.resources import ResourceManifestOut
 from app.security.resource_ticket import createResourceTicket
 
@@ -78,8 +77,8 @@ def validateResourceConfiguration(resource: ProtectedResource) -> None:
         )
 
 
-def authorizeResourceAccess(db: Session, userId: int, deviceId: str) -> Subscription:
-    """校验账号、当前设备和有效订阅，返回生效订阅。"""
+def authorizeResourceAccess(db: Session, userId: int, deviceId: str) -> IdentityUser:
+    """校验账号和当前设备；数据库下载不要求订阅或余额。"""
     user = db.get(IdentityUser, userId)
     if user is None or user.deletedAt is not None or user.status != "active":
         raise ApiError("FORBIDDEN", "账号状态异常，无法下载资源", httpStatus=403)
@@ -94,20 +93,7 @@ def authorizeResourceAccess(db: Session, userId: int, deviceId: str) -> Subscrip
     if activeDevice is None:
         raise ApiError("FORBIDDEN", "当前设备未授权或已被撤销", httpStatus=403)
 
-    now = datetime.now(UTC).replace(tzinfo=None)
-    subscription = db.execute(
-        select(Subscription)
-        .where(
-            Subscription.userId == userId,
-            Subscription.status == "active",
-            Subscription.expiresAt > now,
-        )
-        .order_by(Subscription.currentPeriodEnd.desc())
-        .limit(1)
-    ).scalar_one_or_none()
-    if subscription is None:
-        raise ApiError("RESOURCE_SUBSCRIPTION_REQUIRED", httpStatus=403)
-    return subscription
+    return user
 
 
 def buildResourceManifests(
@@ -116,7 +102,7 @@ def buildResourceManifests(
     deviceId: str,
     publicBaseUrl: str,
 ) -> list[ResourceManifestOut]:
-    """授权通过后，为全部数据库签发短期下载地址。"""
+    """账号与设备校验通过后，为全部数据库签发短期下载地址。"""
     authorizeResourceAccess(db, userId, deviceId)
     settings = getSettings()
     baseUrl = publicBaseUrl.strip().rstrip("/")

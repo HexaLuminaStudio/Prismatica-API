@@ -17,7 +17,8 @@ from app.errors import ApiError
 from app.models.pricing import PricingRuleRecord, PricingVersion
 from app.schemas.billing import CostPreview, PricingRule, PricingTier
 
-BUILTIN_VERSION = "2026.08.10-corpus-downloads"
+BUILTIN_VERSION = "2026.08.13-export-only"
+NON_BILLABLE_FEATURES = frozenset({"hsk_download", "global_download"})
 
 
 @dataclass(frozen=True)
@@ -87,26 +88,6 @@ BUILTIN_RULES: dict[str, PriceRule] = {
         outputTokenCostPer1K=2,
         minCost=1,
         maxCost=100_000,
-    ),
-    "hsk_download": PriceRule(
-        featureCode="hsk_download",
-        displayName="HSK 语料下载",
-        billingMode="metered",
-        unitName="千条",
-        unitSize=1_000,
-        perUnitCost=3,
-        minCost=3,
-        maxCost=1_000_000,
-    ),
-    "global_download": PriceRule(
-        featureCode="global_download",
-        displayName="全球中介语语料下载",
-        billingMode="metered",
-        unitName="千条",
-        unitSize=1_000,
-        perUnitCost=3,
-        minCost=3,
-        maxCost=1_000_000,
     ),
     "hsk_essay_export": PriceRule(
         featureCode="hsk_essay_export",
@@ -218,7 +199,11 @@ class PricingService:
                 ).scalars().all()
                 return (
                     version.versionCode,
-                    [self._recordToRule(record) for record in records],
+                    [
+                        self._recordToRule(record)
+                        for record in records
+                        if record.featureCode not in NON_BILLABLE_FEATURES
+                    ],
                     "published",
                     version.publishedAt,
                 )
@@ -324,6 +309,7 @@ __all__ = [
     "BUILTIN_RULES",
     "BUILTIN_VERSION",
     "DEFAULT_RULES",
+    "NON_BILLABLE_FEATURES",
     "PriceQuote",
     "PriceRule",
     "PricingService",

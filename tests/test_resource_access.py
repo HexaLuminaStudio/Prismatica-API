@@ -1,10 +1,10 @@
-"""受保护资源订阅授权、短期票据与清单测试。"""
+"""数据库资源账号设备授权、短期票据与清单测试。"""
 
 from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import jwt
@@ -17,7 +17,6 @@ from app.db import Base
 from app.errors import ApiError
 from app.models.identity import IdentityDevice
 from app.models.identity import User as IdentityUser
-from app.models.subscription import Subscription
 from app.security.password import hashPassword
 from app.security.resource_ticket import (
     RESOURCE_TICKET_AUDIENCE,
@@ -67,7 +66,7 @@ def resourceSettings(monkeypatch):
     monkeypatch.setattr(settings, "hskLocalCorpusVersion", "2026.08.1")
 
 
-def _createAuthorizedAccount(db: Session) -> tuple[IdentityUser, IdentityDevice]:
+def _createActiveAccount(db: Session) -> tuple[IdentityUser, IdentityDevice]:
     now = datetime.now(UTC).replace(tzinfo=None)
     user = IdentityUser(
         email="resource@example.com",
@@ -88,26 +87,12 @@ def _createAuthorizedAccount(db: Session) -> tuple[IdentityUser, IdentityDevice]
         lastSeenAt=now,
     )
     db.add(device)
-    db.add(
-        Subscription(
-            userId=user.id,
-            planCode="pro",
-            status="active",
-            startedAt=now,
-            currentPeriodStart=now,
-            currentPeriodEnd=now + timedelta(days=30),
-            expiresAt=now + timedelta(days=30),
-            nextGrantAt=None,
-            autoRenew=False,
-            monthlyQuota=1000,
-        )
-    )
     db.flush()
     return user, device
 
 
 def testBuildResourceManifestsHidesOriginAndIssuesShortUrls(db: Session) -> None:
-    user, device = _createAuthorizedAccount(db)
+    user, device = _createActiveAccount(db)
 
     manifests = buildResourceManifests(
         db,
@@ -128,21 +113,16 @@ def testBuildResourceManifestsHidesOriginAndIssuesShortUrls(db: Session) -> None
     assert all("ticket=" in manifest.downloadUrl for manifest in manifests)
 
 
-def testAuthorizeResourceAccessRequiresActiveSubscription(db: Session) -> None:
-    user, device = _createAuthorizedAccount(db)
-    subscription = authorizeResourceAccess(db, user.id, device.deviceId)
-    subscription.status = "expired"
-    db.flush()
+def testAuthorizeResourceAccessAllowsUserWithoutSubscription(db: Session) -> None:
+    user, device = _createActiveAccount(db)
 
-    with pytest.raises(ApiError) as captured:
-        authorizeResourceAccess(db, user.id, device.deviceId)
+    authorizedUser = authorizeResourceAccess(db, user.id, device.deviceId)
 
-    assert captured.value.code == "RESOURCE_SUBSCRIPTION_REQUIRED"
-    assert captured.value.httpStatus == 403
+    assert authorizedUser.id == user.id
 
 
 def testAuthorizeResourceAccessRejectsRevokedDevice(db: Session) -> None:
-    user, device = _createAuthorizedAccount(db)
+    user, device = _createActiveAccount(db)
     device.status = "revoked"
     db.flush()
 

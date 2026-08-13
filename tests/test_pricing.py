@@ -53,20 +53,19 @@ def testPublicCatalog_AdvertisesThirtySecondRefresh() -> None:
         "ai_chat",
         "ai_insight",
         "ai_report",
-        "hsk_download",
-        "global_download",
         "hsk_essay_export",
     }
+    assert {rule["featureCode"] for rule in catalog["rules"]}.isdisjoint(
+        {"hsk_download", "global_download"}
+    )
 
 
 @pytest.mark.parametrize("featureCode", ["hsk_download", "global_download"])
-def testCorpusDownload_RoundsUpEveryThousandRecords(featureCode: str) -> None:
+def testCorpusDownload_IsNotBillable(featureCode: str) -> None:
     pricing = getPricingService()
-    assert pricing.estimate(featureCode, 1) == 3
-    assert pricing.estimate(featureCode, 999) == 3
-    assert pricing.estimate(featureCode, 1_000) == 3
-    assert pricing.estimate(featureCode, 1_001) == 6
-    assert pricing.estimate(featureCode, 2_000) == 6
+    with pytest.raises(ApiError) as exc:
+        pricing.estimate(featureCode, 1_001)
+    assert exc.value.code == "PRICING_RULE_NOT_FOUND"
 
 
 def testHskEssayExport_RoundsUpEveryHundredEssays() -> None:

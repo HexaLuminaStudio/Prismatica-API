@@ -32,6 +32,7 @@ from app.services.billing_service import (
     settleMetered,
     settleTokens,
 )
+from app.services.pricing import BUILTIN_VERSION
 
 
 @pytest.fixture()
@@ -231,15 +232,29 @@ def testSettleFixed_IsIdempotentForClientRetry(db: Session) -> None:
 
 def testSettleMetered_UsesLockedResourceAndPriceSnapshot(db: Session) -> None:
     user = _makeUserWithBalance(db, 500)
-    preauthResp = preauth(db, user.id, "hsk_download", 1_001)
+    preauthResp = preauth(db, user.id, "hsk_essay_export", 101)
     bill = db.execute(select(Bill).where(Bill.billId == preauthResp.billId)).scalar_one()
-    assert bill.pricingSnapshot["quotedResourceUsed"] == 1_001
-    assert preauthResp.estimatedCost == 6
+    assert bill.pricingSnapshot["quotedResourceUsed"] == 101
+    assert preauthResp.estimatedCost == 2
 
     first = settleMetered(db, preauthResp.billId)
     second = settleMetered(db, preauthResp.billId)
-    assert first.realCost == second.realCost == 6
-    assert first.balanceAfter == second.balanceAfter == 494
+    assert first.realCost == second.realCost == 2
+    assert first.balanceAfter == second.balanceAfter == 498
+
+
+def testSettleMetered_RejectsLegacyDownloadBill(db: Session) -> None:
+    user = _makeUserWithBalance(db, 500)
+    preauthResp = preauth(db, user.id, "hsk_essay_export", 101)
+    bill = db.execute(select(Bill).where(Bill.billId == preauthResp.billId)).scalar_one()
+    bill.feature = "hsk_download"
+    db.flush()
+
+    with pytest.raises(ApiError) as captured:
+        settleMetered(db, preauthResp.billId)
+
+    assert captured.value.code == "PRICING_RULE_NOT_FOUND"
+    assert bill.status == "pending"
 
 
 def testSettleTokens_KeepsPreauthPriceSnapshotAfterPublish(db: Session) -> None:
@@ -252,7 +267,7 @@ def testSettleTokens_KeepsPreauthPriceSnapshotAfterPublish(db: Session) -> None:
         estimatedInputTokens=2_000,
         estimatedOutputTokens=2_000,
     )
-    assert preauthResp.pricingVersion == "2026.08.10-corpus-downloads"
+    assert preauthResp.pricingVersion == BUILTIN_VERSION
 
     version = PricingVersion(
         versionCode="test-new-price",
@@ -283,7 +298,7 @@ def testSettleTokens_KeepsPreauthPriceSnapshotAfterPublish(db: Session) -> None:
     result = settleTokens(db, preauthResp.billId, inputTokens=100, outputTokens=100)
     assert result.realCost == 3
     bill = db.execute(select(Bill).where(Bill.billId == preauthResp.billId)).scalar_one()
-    assert bill.pricingVersion == "2026.08.10-corpus-downloads"
+    assert bill.pricingVersion == BUILTIN_VERSION
     assert bill.inputTokens == 100
     assert bill.outputTokens == 100
 

@@ -39,7 +39,7 @@ def _publicBaseUrl() -> str:
 @limiter.limit("30 per hour")
 @requireUser
 def bootstrapResources():
-    """校验订阅和设备后签发当前资源清单。"""
+    """校验登录账号和设备后签发当前资源清单。"""
     with getDb() as db:
         manifests = buildResourceManifests(
             db,

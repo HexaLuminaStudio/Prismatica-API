@@ -20,7 +20,7 @@ class ResourceManifestOut(BaseModel):
 
 
 class ResourceBootstrapResponse(BaseModel):
-    """当前订阅可下载的完整资源清单。"""
+    """当前登录账号可下载的完整资源清单。"""
 
     resources: list[ResourceManifestOut] = Field(default_factory=list)
 
