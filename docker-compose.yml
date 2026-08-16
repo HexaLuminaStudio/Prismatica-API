@@ -1,30 +1,119 @@
+x-api-common: &api-common
+  build:
+    context: .
+    dockerfile: deploy/Dockerfile
+  restart: unless-stopped
+  env_file:
+    - .env
+  environment: &api-common-environment
+    # Linux 容器通过宿主机网关访问宝塔安装的 MySQL；无需开放公网 3306。
+    DB_HOST: ${DOCKER_DB_HOST:-host.docker.internal}
+    REDIS_URL: redis://redis:6379/0
+    RATELIMIT_STORAGE_URI: redis://redis:6379/1
+    # 多服务部署禁止在每个 Gunicorn 进程启动时隐式初始化数据库。
+    AUTO_INIT_SCHEMA: "false"
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  depends_on:
+    redis:
+      condition: service_healthy
+  healthcheck:
+    test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/healthz"]
+    interval: 30s
+    timeout: 5s
+    retries: 3
+    start_period: 10s
+
 services:
+  # 登录、余额、流水、Admin 等短请求。只暴露到宿主机回环地址，公网由 Nginx 统一接入。
   api:
-    build:
-      context: .
-      dockerfile: deploy/Dockerfile
-    container_name: prismatica-api
-    restart: unless-stopped
-    env_file:
-      - .env
+    <<: *api-common
+    container_name: prismatica-api-fast
     environment:
-      # Linux 容器通过宿主机网关访问宝塔安装的 MySQL；无需开放公网 3306。
-      DB_HOST: ${DOCKER_DB_HOST:-host.docker.internal}
-      REDIS_URL: redis://redis:6379/0
-      RATELIMIT_STORAGE_URI: redis://redis:6379/1
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      redis:
-        condition: service_healthy
+      <<: *api-common-environment
+      DB_POOL_SIZE: "3"
+      DB_MAX_OVERFLOW: "2"
+    command:
+      - gunicorn
+      - -w
+      - "4"
+      - -k
+      - gthread
+      - --threads
+      - "4"
+      - -b
+      - 0.0.0.0:8000
+      - --timeout
+      - "30"
+      - --graceful-timeout
+      - "15"
+      - --access-logfile
+      - "-"
+      - --error-logfile
+      - "-"
+      - wsgi:app
     ports:
-      - "8000:8000"
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/healthz"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
+      - "127.0.0.1:8100:8000"
+
+  # AI/SSE 长连接独占进程和线程，不再挤占登录、余额等短请求槽位。
+  ai:
+    <<: *api-common
+    container_name: prismatica-api-ai
+    environment:
+      <<: *api-common-environment
+      DB_POOL_SIZE: "2"
+      DB_MAX_OVERFLOW: "1"
+    command:
+      - gunicorn
+      - -w
+      - "2"
+      - -k
+      - gthread
+      - --threads
+      - "2"
+      - -b
+      - 0.0.0.0:8000
+      - --timeout
+      - "300"
+      - --graceful-timeout
+      - "30"
+      - --access-logfile
+      - "-"
+      - --error-logfile
+      - "-"
+      - wsgi:app
+    ports:
+      - "127.0.0.1:8101:8000"
+
+  # 大文件流式下载独占槽位；后续可替换为对象存储签名直链。
+  resources:
+    <<: *api-common
+    container_name: prismatica-api-resources
+    environment:
+      <<: *api-common-environment
+      DB_POOL_SIZE: "1"
+      DB_MAX_OVERFLOW: "1"
+    command:
+      - gunicorn
+      - -w
+      - "2"
+      - -k
+      - gthread
+      - --threads
+      - "2"
+      - -b
+      - 0.0.0.0:8000
+      - --timeout
+      - "300"
+      - --graceful-timeout
+      - "30"
+      - --access-logfile
+      - "-"
+      - --error-logfile
+      - "-"
+      - wsgi:app
+    ports:
+      - "127.0.0.1:8102:8000"
 
   redis:
     image: redis:7-alpine

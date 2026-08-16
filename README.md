@@ -37,14 +37,29 @@ gunicorn -w 4 -b 0.0.0.0:8000 'app.main:app'
 ```bash
 cd PrismaticaAPI
 docker compose up -d --build
-# API 通过 host.docker.internal 访问宝塔宿主机 MySQL，Redis 由 Compose 管理。
-curl http://localhost:8000/healthz
+# 三个后端实例分别只监听宿主机回环地址 8100 / 8101 / 8102。
+curl http://127.0.0.1:8100/healthz
+curl http://127.0.0.1:8101/healthz
+curl http://127.0.0.1:8102/healthz
 ```
 
 Linux 上 Compose 通过 `extra_hosts: host-gateway` 把 `host.docker.internal`
 解析到宿主机网关。宝塔 MySQL 需要允许 Docker bridge 网段访问，但服务器
 防火墙不应向公网开放 3306。数据库连接使用显式连接、读写和连接池等待超时，
 避免 MySQL 异常时长期占用 Gunicorn 请求槽。
+
+生产环境使用单公网入口隔离请求槽位：
+
+- `api`：`127.0.0.1:8100`，处理登录、余额、流水、Admin 等短请求。
+- `ai`：`127.0.0.1:8101`，处理 `/v1/ai/` 下的 SSE 长连接。
+- `resources`：`127.0.0.1:8102`，处理 `/v1/resources/download/` 流式下载。
+- 宝塔 Nginx：继续监听公网 `8000`，按路径转发到上述三个内部实例。
+
+完整 Nginx `server` 配置见 `deploy/nginx-prismatica-api.conf`。三个内部端口
+必须绑定 `127.0.0.1`，不得加入云安全组或宝塔公网放行。启用 Nginx 前先运行
+`docker compose config --quiet`，启动三个服务并逐一检查内部健康接口；随后执行
+`nginx -t`，确认无误后再重载 Nginx。Qt、Admin 和官网仍使用原公网 IP 与
+`8000`，客户端地址无需改变。
 
 ## 目录结构
 
@@ -71,7 +86,8 @@ tests/
 ├── test_hmac.py     凭证签名/验签
 └── test_jwt.py      JWT 编/解码
 deploy/
-└── Dockerfile       gunicorn 4 worker
+├── Dockerfile                      后端镜像
+└── nginx-prismatica-api.conf       宝塔 Nginx 单入口分流配置
 ```
 
 ## API 一览
@@ -153,6 +169,8 @@ pytest --cov=app --cov-fail-under=60
 ## 环境变量
 
 详见 `.env.example`。生产部署前必须替换:
+- `ENV=prod`，并设置可追踪的 `BUILD_ID` / `GIT_COMMIT`
+- `AUTO_INIT_SCHEMA=false`（Compose 也会强制覆盖，禁止多实例启动期隐式建表）
 - `LICENSE_SECRET`(HMAC 凭证签名,与客户端共用)
 - `JWT_SECRET`(HS256 签名)
 - `ADMIN_TOKEN`(运营端 X-Admin-Token,兼容 curl)
