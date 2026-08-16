@@ -159,8 +159,9 @@ def inspectDatabase(settings: Settings) -> tuple[str, dict[str, set[str]]]:
         password=settings.dbPassword,
         database=settings.dbName,
         charset="utf8mb4",
-        connect_timeout=10,
-        read_timeout=20,
+        connect_timeout=settings.dbConnectTimeoutSec,
+        read_timeout=settings.dbReadTimeoutSec,
+        write_timeout=settings.dbWriteTimeoutSec,
     )
     try:
         with connection.cursor() as cursor:

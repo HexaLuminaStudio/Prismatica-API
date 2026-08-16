@@ -28,7 +28,14 @@ engine: Engine = create_engine(
     pool_size=_settings.dbPoolSize,
     max_overflow=_settings.dbMaxOverflow,
     pool_recycle=_settings.dbPoolRecycleSec,
+    pool_timeout=_settings.dbPoolTimeoutSec,
     pool_pre_ping=True,
+    pool_use_lifo=True,
+    connect_args={
+        "connect_timeout": _settings.dbConnectTimeoutSec,
+        "read_timeout": _settings.dbReadTimeoutSec,
+        "write_timeout": _settings.dbWriteTimeoutSec,
+    },
     future=True,
 )
 

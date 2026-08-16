@@ -17,6 +17,7 @@ from pathlib import Path
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import URL
 
 ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 
@@ -48,17 +49,25 @@ class Settings(BaseSettings):
     dbName: str = Field(default="prismatica", alias="DB_NAME")
     dbUser: str = Field(default="prismatica", alias="DB_USER")
     dbPassword: str = Field(default="prismatica", alias="DB_PASSWORD")
-    dbPoolSize: int = Field(default=10, alias="DB_POOL_SIZE")
-    dbMaxOverflow: int = Field(default=20, alias="DB_MAX_OVERFLOW")
-    dbPoolRecycleSec: int = Field(default=1800, alias="DB_POOL_RECYCLE_SEC")
+    dbPoolSize: int = Field(default=5, ge=1, le=50, alias="DB_POOL_SIZE")
+    dbMaxOverflow: int = Field(default=5, ge=0, le=100, alias="DB_MAX_OVERFLOW")
+    dbPoolRecycleSec: int = Field(default=1800, ge=60, alias="DB_POOL_RECYCLE_SEC")
+    dbPoolTimeoutSec: int = Field(default=5, ge=1, le=60, alias="DB_POOL_TIMEOUT_SEC")
+    dbConnectTimeoutSec: int = Field(default=3, ge=1, le=30, alias="DB_CONNECT_TIMEOUT_SEC")
+    dbReadTimeoutSec: int = Field(default=10, ge=1, le=120, alias="DB_READ_TIMEOUT_SEC")
+    dbWriteTimeoutSec: int = Field(default=10, ge=1, le=120, alias="DB_WRITE_TIMEOUT_SEC")
 
     @property
-    def dbUrl(self) -> str:
-        """SQLAlchemy 同步 URL(PyMySQL 驱动)。"""
-        return (
-            f"mysql+pymysql://{self.dbUser}:{self.dbPassword}"
-            f"@{self.dbHost}:{self.dbPort}/{self.dbName}"
-            "?charset=utf8mb4"
+    def dbUrl(self) -> URL:
+        """构造不会被密码中特殊字符破坏的 SQLAlchemy URL。"""
+        return URL.create(
+            drivername="mysql+pymysql",
+            username=self.dbUser,
+            password=self.dbPassword,
+            host=self.dbHost,
+            port=self.dbPort,
+            database=self.dbName,
+            query={"charset": "utf8mb4"},
         )
 
     # ---- Redis ----

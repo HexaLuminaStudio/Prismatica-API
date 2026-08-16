@@ -35,11 +35,16 @@ gunicorn -w 4 -b 0.0.0.0:8000 'app.main:app'
 ### 方式二:Docker Compose
 
 ```bash
-cd deploy
+cd PrismaticaAPI
 docker compose up -d --build
-# 等待 mysql 健康检查通过后,API 自动连上
+# API 通过 host.docker.internal 访问宝塔宿主机 MySQL，Redis 由 Compose 管理。
 curl http://localhost:8000/healthz
 ```
+
+Linux 上 Compose 通过 `extra_hosts: host-gateway` 把 `host.docker.internal`
+解析到宿主机网关。宝塔 MySQL 需要允许 Docker bridge 网段访问，但服务器
+防火墙不应向公网开放 3306。数据库连接使用显式连接、读写和连接池等待超时，
+避免 MySQL 异常时长期占用 Gunicorn 请求槽。
 
 ## 目录结构
 
