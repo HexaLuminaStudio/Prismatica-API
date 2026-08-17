@@ -177,7 +177,7 @@ class Settings(BaseSettings):
     # ---- 平台 AI（密钥仅保存在后端）----
     aiApiKey: SecretStr = Field(default=SecretStr(""), alias="AI_API_KEY")
     aiBaseUrl: str = Field(default="https://api.deepseek.com", alias="AI_BASE_URL")
-    aiModelChat: str = Field(default="deepseek-chat", alias="AI_MODEL_CHAT")
+    aiModelChat: str = Field(default="deepseek-v4-flash", alias="AI_MODEL_CHAT")
     aiConnectTimeoutSec: int = Field(default=10, ge=1, le=60, alias="AI_CONNECT_TIMEOUT_SEC")
     aiReadTimeoutSec: int = Field(default=120, ge=10, le=600, alias="AI_READ_TIMEOUT_SEC")
     aiMaxOutputTokens: int = Field(default=2048, ge=128, le=32768, alias="AI_MAX_OUTPUT_TOKENS")

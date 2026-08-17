@@ -25,6 +25,7 @@ python -m scripts.migrate_account_billing
 python -m scripts.migrate_auth_version
 python -m scripts.migrate_dynamic_pricing
 python -m scripts.migrate_corpus_download_pricing
+python -m scripts.migrate_affordable_ai_pricing
 python -m scripts.db_preflight
 
 # 4. 启动（P0-A M2-M9 完成前，旧 ORM 尚未适配新 schema）
@@ -180,6 +181,9 @@ pytest --cov=app --cov-fail-under=60
 - `AI_API_KEY`（平台统一持有的供应商密钥，禁止下发到客户端）
 
 平台 AI 还可通过 `AI_BASE_URL`、`AI_MODEL_CHAT`、`AI_MAX_OUTPUT_TOKENS` 调整供应商与模型。
+默认使用 `deepseek-v4-flash`。AI 聊天、AI 解读和 AI 研究报告默认按每 100 万 Token
+输入 1 点、输出 2 点计价，输入与输出的加权费用合并后只向上取整一次，单次最低 1 点；
+运营后台可连同 Token 计量单位一起发布新价格版本。
 供应商响应必须包含可核验的 Token usage；缺少 usage 时请求失败并释放预授权，不进行估算扣费。
 流式端点依次返回 `progress`、`delta`、`completed` 或 `error` 事件，并透传 `heartbeat`
 保持长连接；客户端断开、上游失败或最终 usage 缺失时自动释放预授权。

@@ -46,9 +46,10 @@ def _rules(fixedCost: int) -> list[dict]:
             "featureCode": "ai_chat",
             "displayName": "AI 聊天",
             "billingMode": "token",
-            "unitName": "千 Token",
-            "inputTokenCostPer1K": 2,
-            "outputTokenCostPer1K": 3,
+            "unitName": "Token",
+            "unitSize": 1_000_000,
+            "inputTokenCostPerUnit": 2,
+            "outputTokenCostPerUnit": 3,
             "minCost": 1,
             "maxCost": 1_000_000,
             "enabled": True,
@@ -86,6 +87,10 @@ def testPublishedPricingCatalog_ExposesCurrentStatus(pricingDb) -> None:
     assert next(
         rule for rule in catalog["rules"] if rule["featureCode"] == "analysis_export"
     )["fixedCost"] == 9
+    aiRule = next(rule for rule in catalog["rules"] if rule["featureCode"] == "ai_chat")
+    assert aiRule["unitSize"] == 1_000_000
+    assert aiRule["inputTokenCostPerUnit"] == 2
+    assert aiRule["outputTokenCostPerUnit"] == 3
 
 
 def testFixedDraft_NormalizesMinimumAndMaximum(pricingDb) -> None:

@@ -291,7 +291,7 @@ def testSettleTokens_KeepsPreauthPriceSnapshotAfterPublish(db: Session) -> None:
         estimatedInputTokens=2_000,
         estimatedOutputTokens=2_000,
     )
-    assert preauthResp.pricingVersion == "2026.08.10-corpus-downloads"
+    assert preauthResp.pricingVersion == "2026.08.17-affordable-ai"
 
     version = PricingVersion(
         versionCode="test-new-price",
@@ -309,20 +309,22 @@ def testSettleTokens_KeepsPreauthPriceSnapshotAfterPublish(db: Session) -> None:
             featureCode="ai_chat",
             displayName="AI 聊天",
             billingMode="token",
-            unitName="千 Token",
+            unitName="Token",
+            unitSize=1_000_000,
             inputTokenCostPer1K=50,
             outputTokenCostPer1K=80,
             minCost=1,
             maxCost=1_000_000,
             enabled=True,
+            ruleMeta={"tokenPricingVersion": 2},
         )
     )
     db.commit()
 
     result = settleTokens(db, preauthResp.billId, inputTokens=100, outputTokens=100)
-    assert result.realCost == 3
+    assert result.realCost == 1
     bill = db.execute(select(Bill).where(Bill.billId == preauthResp.billId)).scalar_one()
-    assert bill.pricingVersion == "2026.08.10-corpus-downloads"
+    assert bill.pricingVersion == "2026.08.17-affordable-ai"
     assert bill.inputTokens == 100
     assert bill.outputTokens == 100
 

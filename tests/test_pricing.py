@@ -27,11 +27,30 @@ def testAnalysisExport_PreviewShowsAffordabilityAndVersion() -> None:
     assert poor.affordable is False
 
 
-def testAiTokenPrice_UsesSeparateInputAndOutputThousands() -> None:
+def testAiTokenPrice_UsesWeightedMillionTokenUnitAndRoundsOnce() -> None:
     pricing = getPricingService()
     quote = pricing.quote("ai_chat", inputTokens=1_001, outputTokens=2_001)
     assert quote.billingMode == "token"
-    assert quote.estimatedCost == 2 * 1 + 3 * 2
+    assert quote.ruleSnapshot["unitSize"] == 1_000_000
+    assert quote.ruleSnapshot["tokenPricingVersion"] == 2
+    assert quote.estimatedCost == 1
+
+    larger = pricing.quote("ai_chat", inputTokens=1_000_000, outputTokens=1_000_000)
+    assert larger.estimatedCost == 3
+
+
+def testAiTokenPrice_PreservesLegacySnapshotFormula() -> None:
+    from app.services.pricing import costFromSnapshot
+
+    legacySnapshot = {
+        "billingMode": "token",
+        "baseCost": 0,
+        "inputTokenCostPer1K": 1,
+        "outputTokenCostPer1K": 2,
+        "minCost": 1,
+        "maxCost": 100_000,
+    }
+    assert costFromSnapshot(legacySnapshot, inputTokens=1_001, outputTokens=2_001) == 8
 
 
 def testUnknownOrLocalAction_IsNeverSilentlyCharged() -> None:

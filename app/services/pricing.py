@@ -17,7 +17,7 @@ from app.errors import ApiError
 from app.models.pricing import PricingRuleRecord, PricingVersion
 from app.schemas.billing import CostPreview, PricingRule, PricingTier
 
-BUILTIN_VERSION = "2026.08.10-corpus-downloads"
+BUILTIN_VERSION = "2026.08.17-affordable-ai"
 
 
 @dataclass(frozen=True)
@@ -30,8 +30,12 @@ class PriceRule:
     fixedCost: int = 0
     baseCost: int = 0
     perUnitCost: int = 0
+    inputTokenCostPerUnit: int = 0
+    outputTokenCostPerUnit: int = 0
+    # 仅用于读取旧价格快照；新价格统一使用可配置的每单位 Token 单价。
     inputTokenCostPer1K: int = 0
     outputTokenCostPer1K: int = 0
+    tokenPricingVersion: int = 1
     minCost: int = 0
     maxCost: int = 1_000_000
     enabled: bool = True
@@ -62,9 +66,11 @@ BUILTIN_RULES: dict[str, PriceRule] = {
         featureCode="ai_chat",
         displayName="AI 聊天",
         billingMode="token",
-        unitName="千 Token",
-        inputTokenCostPer1K=1,
-        outputTokenCostPer1K=2,
+        unitName="Token",
+        unitSize=1_000_000,
+        inputTokenCostPerUnit=1,
+        outputTokenCostPerUnit=2,
+        tokenPricingVersion=2,
         minCost=1,
         maxCost=100_000,
     ),
@@ -72,9 +78,11 @@ BUILTIN_RULES: dict[str, PriceRule] = {
         featureCode="ai_insight",
         displayName="AI 解读",
         billingMode="token",
-        unitName="千 Token",
-        inputTokenCostPer1K=1,
-        outputTokenCostPer1K=2,
+        unitName="Token",
+        unitSize=1_000_000,
+        inputTokenCostPerUnit=1,
+        outputTokenCostPerUnit=2,
+        tokenPricingVersion=2,
         minCost=1,
         maxCost=100_000,
     ),
@@ -82,9 +90,11 @@ BUILTIN_RULES: dict[str, PriceRule] = {
         featureCode="ai_report",
         displayName="AI 研究报告",
         billingMode="token",
-        unitName="千 Token",
-        inputTokenCostPer1K=1,
-        outputTokenCostPer1K=2,
+        unitName="Token",
+        unitSize=1_000_000,
+        inputTokenCostPerUnit=1,
+        outputTokenCostPerUnit=2,
+        tokenPricingVersion=2,
         minCost=1,
         maxCost=100_000,
     ),
@@ -155,8 +165,19 @@ def costFromSnapshot(
         cost = int(snapshot.get("fixedCost", 0) or 0)
     elif mode == "token":
         cost = int(snapshot.get("baseCost", 0) or 0)
-        cost += _ceilUnits(inputTokens, 1_000) * int(snapshot.get("inputTokenCostPer1K", 0) or 0)
-        cost += _ceilUnits(outputTokens, 1_000) * int(snapshot.get("outputTokenCostPer1K", 0) or 0)
+        if int(snapshot.get("tokenPricingVersion", 1) or 1) >= 2:
+            tokenUnitSize = max(1, int(snapshot.get("unitSize", 1_000_000) or 1_000_000))
+            weightedTokenCost = max(0, int(inputTokens)) * int(
+                snapshot.get("inputTokenCostPerUnit", 0) or 0
+            )
+            weightedTokenCost += max(0, int(outputTokens)) * int(
+                snapshot.get("outputTokenCostPerUnit", 0) or 0
+            )
+            cost += _ceilUnits(weightedTokenCost, tokenUnitSize)
+        else:
+            # 旧账单仍严格按原快照的“输入/输出分别每千 Token 向上取整”结算。
+            cost += _ceilUnits(inputTokens, 1_000) * int(snapshot.get("inputTokenCostPer1K", 0) or 0)
+            cost += _ceilUnits(outputTokens, 1_000) * int(snapshot.get("outputTokenCostPer1K", 0) or 0)
     elif mode == "metered":
         cost = int(snapshot.get("baseCost", 0) or 0)
         cost += _ceilUnits(resourceUsed, int(snapshot.get("unitSize", 1) or 1)) * int(
@@ -187,6 +208,10 @@ class PricingService:
             return None
 
     def _recordToRule(self, record: PricingRuleRecord) -> PriceRule:
+        ruleMeta = dict(record.ruleMeta or {})
+        usesAffordableTokenPricing = (
+            record.billingMode == "token" and int(ruleMeta.get("tokenPricingVersion", 0) or 0) >= 2
+        )
         return PriceRule(
             featureCode=record.featureCode,
             displayName=record.displayName,
@@ -196,8 +221,15 @@ class PricingService:
             fixedCost=int(record.fixedCost or 0),
             baseCost=int(record.baseCost or 0),
             perUnitCost=int(record.perUnitCost or 0),
-            inputTokenCostPer1K=int(record.inputTokenCostPer1K or 0),
-            outputTokenCostPer1K=int(record.outputTokenCostPer1K or 0),
+            inputTokenCostPerUnit=(
+                int(record.inputTokenCostPer1K or 0) if usesAffordableTokenPricing else 0
+            ),
+            outputTokenCostPerUnit=(
+                int(record.outputTokenCostPer1K or 0) if usesAffordableTokenPricing else 0
+            ),
+            inputTokenCostPer1K=(0 if usesAffordableTokenPricing else int(record.inputTokenCostPer1K or 0)),
+            outputTokenCostPer1K=(0 if usesAffordableTokenPricing else int(record.outputTokenCostPer1K or 0)),
+            tokenPricingVersion=2 if usesAffordableTokenPricing else 1,
             minCost=int(record.minCost or 0),
             maxCost=int(record.maxCost or 1_000_000),
             enabled=bool(record.enabled),

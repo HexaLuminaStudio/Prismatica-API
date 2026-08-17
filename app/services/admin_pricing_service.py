@@ -15,18 +15,47 @@ from app.services.pricing import getPricingService
 ALLOWED_MODES = {"fixed", "token", "metered"}
 
 
+def _serializeRuleData(rule: dict[str, Any]) -> dict[str, Any]:
+    """把数据库写入字段转换为管理端公开的通用 Token 单价字段。"""
+    return {
+        "featureCode": rule["featureCode"],
+        "displayName": rule["displayName"],
+        "billingMode": rule["billingMode"],
+        "unitName": rule["unitName"],
+        "unitSize": int(rule["unitSize"]),
+        "fixedCost": int(rule["fixedCost"]),
+        "baseCost": int(rule["baseCost"]),
+        "perUnitCost": int(rule["perUnitCost"]),
+        "inputTokenCostPerUnit": int(rule["inputTokenCostPer1K"]),
+        "outputTokenCostPerUnit": int(rule["outputTokenCostPer1K"]),
+        "tokenPricingVersion": 2 if rule["billingMode"] == "token" else 1,
+        "minCost": int(rule["minCost"]),
+        "maxCost": int(rule["maxCost"]),
+        "enabled": bool(rule["enabled"]),
+    }
+
+
 def _serializeRule(rule: PricingRuleRecord) -> dict[str, Any]:
+    ruleMeta = dict(rule.ruleMeta or {})
+    usesAffordableTokenPricing = (
+        rule.billingMode == "token" and int(ruleMeta.get("tokenPricingVersion", 0) or 0) >= 2
+    )
     return {
         "featureCode": rule.featureCode,
         "displayName": rule.displayName,
         "billingMode": rule.billingMode,
         "unitName": rule.unitName,
-        "unitSize": int(rule.unitSize or 1),
+        "unitSize": (
+            int(rule.unitSize or 1)
+            if usesAffordableTokenPricing or rule.billingMode != "token"
+            else 1_000
+        ),
         "fixedCost": int(rule.fixedCost or 0),
         "baseCost": int(rule.baseCost or 0),
         "perUnitCost": int(rule.perUnitCost or 0),
-        "inputTokenCostPer1K": int(rule.inputTokenCostPer1K or 0),
-        "outputTokenCostPer1K": int(rule.outputTokenCostPer1K or 0),
+        "inputTokenCostPerUnit": int(rule.inputTokenCostPer1K or 0),
+        "outputTokenCostPerUnit": int(rule.outputTokenCostPer1K or 0),
+        "tokenPricingVersion": 2 if usesAffordableTokenPricing else 1,
         "minCost": int(rule.minCost or 0),
         "maxCost": int(rule.maxCost or 0),
         "enabled": bool(rule.enabled),
@@ -47,18 +76,23 @@ def _validateRule(raw: dict[str, Any]) -> dict[str, Any]:
     if not unitName or len(unitName) > 32:
         raise ApiError("PRICING_RULE_INVALID", f"{featureCode} 的计量单位无效")
 
+    normalizedRaw = dict(raw)
+    if "inputTokenCostPerUnit" not in normalizedRaw:
+        normalizedRaw["inputTokenCostPerUnit"] = normalizedRaw.get("inputTokenCostPer1K", 0)
+    if "outputTokenCostPerUnit" not in normalizedRaw:
+        normalizedRaw["outputTokenCostPerUnit"] = normalizedRaw.get("outputTokenCostPer1K", 0)
     numbers: dict[str, int] = {}
     for field in (
         "fixedCost",
         "baseCost",
         "perUnitCost",
-        "inputTokenCostPer1K",
-        "outputTokenCostPer1K",
+        "inputTokenCostPerUnit",
+        "outputTokenCostPerUnit",
         "minCost",
         "maxCost",
     ):
         try:
-            value = int(raw.get(field, 0) or 0)
+            value = int(normalizedRaw.get(field, 0) or 0)
         except (TypeError, ValueError) as error:
             raise ApiError("PRICING_RULE_INVALID", f"{featureCode} 的 {field} 不是整数") from error
         if value < 0 or value > 1_000_000:
@@ -76,7 +110,7 @@ def _validateRule(raw: dict[str, Any]) -> dict[str, Any]:
         numbers["minCost"] = numbers["fixedCost"]
         numbers["maxCost"] = numbers["fixedCost"]
     elif billingMode == "token" and not (
-        numbers["inputTokenCostPer1K"] or numbers["outputTokenCostPer1K"]
+        numbers["inputTokenCostPerUnit"] or numbers["outputTokenCostPerUnit"]
     ):
         raise ApiError("PRICING_RULE_INVALID", f"{featureCode} 至少要配置一种 Token 单价")
 
@@ -86,7 +120,15 @@ def _validateRule(raw: dict[str, Any]) -> dict[str, Any]:
         "billingMode": billingMode,
         "unitName": unitName,
         "unitSize": unitSize,
-        **numbers,
+        "fixedCost": numbers["fixedCost"],
+        "baseCost": numbers["baseCost"],
+        "perUnitCost": numbers["perUnitCost"],
+        # 数据库列名为历史兼容名称；新价格的真实计量单位由 unitSize 决定。
+        "inputTokenCostPer1K": numbers["inputTokenCostPerUnit"],
+        "outputTokenCostPer1K": numbers["outputTokenCostPerUnit"],
+        "minCost": numbers["minCost"],
+        "maxCost": numbers["maxCost"],
+        "ruleMeta": {"tokenPricingVersion": 2} if billingMode == "token" else None,
         "enabled": bool(raw.get("enabled", True)),
     }
 
@@ -147,7 +189,11 @@ def createPricingDraft(actor: str, rawRules: list[dict[str, Any]], note: str = "
         for rule in rules:
             db.add(PricingRuleRecord(versionId=version.versionId, **rule))
         db.commit()
-    return {"versionCode": versionCode, "status": "draft", "rules": rules}
+    return {
+        "versionCode": versionCode,
+        "status": "draft",
+        "rules": [_serializeRuleData(rule) for rule in rules],
+    }
 
 
 def publishPricingVersion(versionCode: str, actor: str) -> dict[str, Any]:
