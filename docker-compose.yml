@@ -6,6 +6,9 @@ x-api-common: &api-common
   env_file:
     - .env
   environment: &api-common-environment
+    # 部署脚本通过 shell 环境注入本次版本；手动启动时沿用 .env 中的值。
+    BUILD_ID: ${BUILD_ID:-local}
+    GIT_COMMIT: ${GIT_COMMIT:-unknown}
     # Linux 容器通过宿主机网关访问宝塔安装的 MySQL；无需开放公网 3306。
     DB_HOST: ${DOCKER_DB_HOST:-host.docker.internal}
     REDIS_URL: redis://redis:6379/0

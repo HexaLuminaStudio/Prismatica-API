@@ -45,6 +45,31 @@ curl http://127.0.0.1:8101/healthz
 curl http://127.0.0.1:8102/healthz
 ```
 
+### 生产服务器一键更新
+
+仓库内提供 `deploy/update_and_restart.sh`，用于安全拉取 `main`、创建 MySQL 一致性备份、
+构建镜像、按顺序执行幂等迁移、重建 `api` / `ai` / `resources` / `maintenance`，并检查
+内部端口和公网 Nginx 分流。Redis 只在未运行时启动，不会被强制重启。
+
+```bash
+cd /实际路径/PrismaticaAPI
+chmod +x deploy/update_and_restart.sh
+./deploy/update_and_restart.sh
+```
+
+常用覆盖参数：
+
+```bash
+BRANCH=main \
+PUBLIC_BASE_URL=http://127.0.0.1:8000 \
+BACKUP_DIR=/安全备份目录/prismatica-api \
+./deploy/update_and_restart.sh
+```
+
+脚本默认要求 `.env` 中 `ENV=prod`，并在更新前拒绝覆盖服务器上的未提交修改。首次部署且
+数据库尚不存在时，可显式使用 `SKIP_DB_BACKUP=1`；仅在没有 Nginx 的测试服务器上可使用
+`SKIP_PUBLIC_PROBES=1`。部署成功后仍需使用真实账号检查登录、余额、流水、Admin、AI 和资源下载。
+
 Linux 上 Compose 通过 `extra_hosts: host-gateway` 把 `host.docker.internal`
 解析到宿主机网关。宝塔 MySQL 需要允许 Docker bridge 网段访问，但服务器
 防火墙不应向公网开放 3306。数据库连接使用显式连接、读写和连接池等待超时，
