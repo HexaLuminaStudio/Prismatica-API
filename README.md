@@ -70,6 +70,18 @@ BACKUP_DIR=/安全备份目录/prismatica-api \
 数据库尚不存在时，可显式使用 `SKIP_DB_BACKUP=1`；仅在没有 Nginx 的测试服务器上可使用
 `SKIP_PUBLIC_PROBES=1`。部署成功后仍需使用真实账号检查登录、余额、流水、Admin、AI 和资源下载。
 
+如果代码和镜像都没有变化，只需要重启现有后端容器，可以使用纯重启脚本：
+
+```bash
+cd /实际路径/PrismaticaAPI
+chmod +x deploy/restart_backend.sh
+./deploy/restart_backend.sh
+```
+
+`restart_backend.sh` 不访问 Git、不构建镜像、不执行迁移、不备份数据库，也不会重启 Redis、
+Nginx 或 MySQL。它只重启现有的四个后端容器并执行健康检查；本地源码或 Compose 已变化时，
+应改用 `update_and_restart.sh`。
+
 Linux 上 Compose 通过 `extra_hosts: host-gateway` 把 `host.docker.internal`
 解析到宿主机网关。宝塔 MySQL 需要允许 Docker bridge 网段访问，但服务器
 防火墙不应向公网开放 3306。数据库连接使用显式连接、读写和连接池等待超时，

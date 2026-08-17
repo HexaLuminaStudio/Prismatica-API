@@ -370,6 +370,7 @@ main() {
     requireCommand awk
     requireCommand grep
     requireCommand flock
+    requireCommand mktemp
 
     mkdir -p -- "${STATE_DIR}"
     exec 9>"${STATE_DIR}/deploy.lock"
