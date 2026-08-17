@@ -44,6 +44,7 @@ def testRecordAudit_WritesRow(db) -> None:
         targetUser="42",
         details={"reason": "spam"},
         ip="127.0.0.1",
+        requestId="request-42",
     )
     db.commit()
     assert row is not None
@@ -51,6 +52,8 @@ def testRecordAudit_WritesRow(db) -> None:
     assert len(audits) == 1
     assert audits[0].action == "user.ban"
     assert audits[0].details == {"reason": "spam"}
+    assert audits[0].requestId == "request-42"
+    assert audits[0].createdAt is not None
 
 
 def testRecordAudit_HandlesNonJsonableDetails(db) -> None:

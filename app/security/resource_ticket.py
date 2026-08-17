@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+import hmac
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -37,6 +40,23 @@ def _ticketSecret() -> str:
             httpStatus=503,
         )
     return secret
+
+
+def _isCanonicalJwt(ticket: str) -> bool:
+    """拒绝 Base64URL 尾部位不同但解码字节相同的非规范 JWT。"""
+    parts = ticket.split(".")
+    if len(parts) != 3 or any(not part for part in parts):
+        return False
+    try:
+        for part in parts:
+            padded = part + "=" * (-len(part) % 4)
+            decoded = base64.urlsafe_b64decode(padded.encode("ascii"))
+            canonical = base64.urlsafe_b64encode(decoded).rstrip(b"=").decode("ascii")
+            if not hmac.compare_digest(part, canonical):
+                return False
+    except (UnicodeEncodeError, binascii.Error, ValueError):
+        return False
+    return True
 
 
 def createResourceTicket(
@@ -81,6 +101,8 @@ def verifyResourceTicket(
 ) -> ResourceTicketClaims:
     """校验票据签名、时效、资源标识和版本。"""
     settings = getSettings()
+    if not _isCanonicalJwt(ticket):
+        raise ApiError("RESOURCE_TICKET_INVALID", httpStatus=401)
     try:
         payload = jwt.decode(
             ticket,

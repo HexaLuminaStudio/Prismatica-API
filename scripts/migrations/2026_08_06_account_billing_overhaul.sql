@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
     display_name          VARCHAR(64) NOT NULL DEFAULT '',
     tier                  VARCHAR(16) NOT NULL DEFAULT 'free',
     status                VARCHAR(16) NOT NULL DEFAULT 'active',
+    auth_version          BIGINT NOT NULL DEFAULT 0,
     failed_login_count    INT UNSIGNED NOT NULL DEFAULT 0,
     locked_until          DATETIME(3) NULL,
     email_verified        TINYINT(1) NOT NULL DEFAULT 0,

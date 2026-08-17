@@ -22,6 +22,7 @@ cp .env.example .env
 
 # 3. 准备空 MySQL 数据库并执行版本化迁移（可安全重复运行）
 python -m scripts.migrate_account_billing
+python -m scripts.migrate_auth_version
 python -m scripts.migrate_dynamic_pricing
 python -m scripts.migrate_corpus_download_pricing
 python -m scripts.db_preflight

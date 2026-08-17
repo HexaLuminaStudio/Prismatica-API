@@ -10,11 +10,11 @@ from sqlalchemy import func as saFunc
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 
+from app.datetime_utils import parseUtcIso, toUtcIso
 from app.db import getDb
 from app.errors import ApiError
 from app.models import (
     BalanceLedger,
-    RefreshToken,
     StoredRefreshToken,
     Subscription,
     UserAccount,
@@ -28,6 +28,7 @@ from app.services.subscription_service import (
     createSubscription,
     getActiveSubscription,
 )
+from app.services.token_service import revokeAllRefreshTokens
 
 VALID_TIERS = {"free", "pro", "team", "guest", "trial", "beta", "beta_pro", "paid"}
 STATUS_ALIASES = {
@@ -48,7 +49,7 @@ def _parseCursor(cursor: str | None) -> datetime | None:
     if not cursor:
         return None
     try:
-        return datetime.fromisoformat(cursor.replace("Z", "+00:00")).replace(tzinfo=None)
+        return parseUtcIso(cursor)
     except ValueError as e:
         raise ApiError("BAD_REQUEST", f"cursor 格式错误: {e}") from e
 
@@ -108,6 +109,26 @@ def _generatePassword() -> str:
 
 def _balanceFor(userId: int) -> UserBalance:
     return UserBalance(userId=userId)
+
+
+def _revokeUserAuthentication(db, userId: int, reason: str) -> int:
+    """撤销用户全部设备与 Refresh Token，使既有 Access Token 立即失效。"""
+    now = _now()
+    user = db.execute(
+        select(UserAccount).where(UserAccount.id == userId).with_for_update()
+    ).scalar_one_or_none()
+    if user is None:
+        raise ApiError("NOT_FOUND", "用户不存在")
+    user.authVersion = int(user.authVersion or 0) + 1
+    devices = db.execute(
+        select(UserDevice)
+        .where(UserDevice.userId == userId, UserDevice.status == "active")
+        .with_for_update()
+    ).scalars().all()
+    for device in devices:
+        device.status = "revoked"
+        device.revokedAt = now
+    return revokeAllRefreshTokens(db, userId, reason)
 
 
 def _deviceStats(db, userId: int) -> tuple[int, datetime | None]:
@@ -182,7 +203,7 @@ def listUsers(
         nextCursor: str | None = None
         if len(rows) > limit:
             lastRow = rows[limit - 1][0]
-            nextCursor = lastRow.createdAt.isoformat()
+            nextCursor = toUtcIso(lastRow.createdAt)
             rows = rows[:limit]
 
         return [_toUserItem(db, user, balance) for user, balance in rows], nextCursor
@@ -269,8 +290,16 @@ def updateUser(
             user.tier = normalizedTier
         if normalizedStatus:
             user.status = normalizedStatus
-            if normalizedStatus != "deleted":
+            if normalizedStatus == "deleted":
+                user.deletedAt = _now()
+            else:
                 user.deletedAt = None
+            if normalizedStatus != "active":
+                _revokeUserAuthentication(
+                    db,
+                    numericUserId,
+                    f"admin_status_{normalizedStatus}",
+                )
         if normalizedEmail:
             user.email = normalizedEmail
         if displayName is not None:
@@ -341,19 +370,14 @@ def grantBalance(userId: str, amount: int, note: str = "") -> dict[str, Any]:
 
 def revokeAllSessions(userId: str, reason: str = "") -> dict[str, Any]:
     numericUserId = _parseUserId(userId)
-    now = _now()
     with getDb() as db:
         if db.get(UserAccount, numericUserId) is None:
             raise ApiError("NOT_FOUND", "用户不存在")
-        tokens = db.execute(
-            select(RefreshToken).where(RefreshToken.userId == numericUserId, RefreshToken.revokedAt.is_(None))
-        ).scalars().all()
-        revoked = 0
-        for token in tokens:
-            token.revokedAt = now
-            if hasattr(token, "revokeReason"):
-                token.revokeReason = reason or "admin"
-            revoked += 1
+        revoked = _revokeUserAuthentication(
+            db,
+            numericUserId,
+            reason or "admin_revoke_sessions",
+        )
         db.commit()
 
     recordAudit(
@@ -393,23 +417,8 @@ def deleteUser(userId: str, confirm: str = "") -> dict[str, Any]:
             raise ApiError("NOT_FOUND", "用户不存在")
         user.status = "deleted"
         user.deletedAt = now
-        devices = db.execute(
-            select(UserDevice).where(
-                UserDevice.userId == numericUserId, UserDevice.status == "active"
-            )
-        ).scalars().all()
-        for device in devices:
-            device.status = "revoked"
-            device.revokedAt = now
-        tokens = db.execute(
-            select(RefreshToken).where(
-                RefreshToken.userId == numericUserId, RefreshToken.revokedAt.is_(None)
-            )
-        ).scalars().all()
-        for token in tokens:
-            token.revokedAt = now
-            if hasattr(token, "revokeReason"):
-                token.revokeReason = "admin_delete_user"
+        user.passwordHash = "!"
+        _revokeUserAuthentication(db, numericUserId, "admin_delete_user")
         db.commit()
 
     recordAudit(actor="admin", action="admin.delete_user", targetUser=str(numericUserId), details={"softDelete": True})

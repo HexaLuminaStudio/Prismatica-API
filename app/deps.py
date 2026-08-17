@@ -11,10 +11,11 @@ from flask import g, request
 from sqlalchemy import select
 
 from app.config import getSettings
+from app.datetime_utils import utcNowNaive
 from app.db import getDb
 from app.errors import ApiError
 from app.middleware.admin_session import readSessionCookie
-from app.models import AdminUser, IdentityDevice, RevokedToken
+from app.models import AdminUser, IdentityDevice, IdentityUser, RevokedToken
 from app.security.jwt import decodeAccessToken
 
 _settings = getSettings()
@@ -55,9 +56,24 @@ def authenticateUserToken(
     if db.get(RevokedToken, jti) is not None:
         raise ApiError("TOKEN_REVOKED", httpStatus=401)
 
+    userId = int(subject)
+    user = db.get(IdentityUser, userId)
+    if user is None or user.status != "active" or user.deletedAt is not None:
+        raise ApiError(
+            "TOKEN_REVOKED",
+            "账号已被暂停或注销，请重新登录",
+            httpStatus=401,
+        )
+    try:
+        tokenAuthVersion = int(payload.get("auth_version", 0))
+    except (TypeError, ValueError) as error:
+        raise ApiError("UNAUTHORIZED", "登录凭证版本无效", httpStatus=401) from error
+    if tokenAuthVersion != int(user.authVersion or 0):
+        raise ApiError("TOKEN_REVOKED", "登录凭证已失效，请重新登录", httpStatus=401)
+
     activeDevice = db.execute(
         select(IdentityDevice).where(
-            IdentityDevice.userId == int(subject),
+            IdentityDevice.userId == userId,
             IdentityDevice.deviceId == claimedDeviceId,
             IdentityDevice.status == "active",
         )
@@ -69,10 +85,15 @@ def authenticateUserToken(
             httpStatus=401,
         )
 
+    # 每次通过鉴权都代表一次真实在线活动。写入应用生成的 UTC，避免仅在
+    # 登录/刷新时更新，导致后台把大量用户长期显示为同一天上线。
+    activeDevice.lastSeenAt = utcNowNaive()
+    db.flush()
+
     return UserAuthContext(
-        userId=int(subject),
+        userId=userId,
         deviceId=claimedDeviceId,
-        tier=str(payload.get("tier", "free")),
+        tier=str(user.tier),
         jti=str(jti),
         claims=payload,
     )

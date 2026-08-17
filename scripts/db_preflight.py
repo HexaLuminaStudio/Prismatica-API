@@ -28,6 +28,7 @@ P0_REQUIRED_COLUMNS: dict[str, set[str]] = {
         "password_hash",
         "tier",
         "status",
+        "auth_version",
         "failed_login_count",
         "locked_until",
         "email_verified",

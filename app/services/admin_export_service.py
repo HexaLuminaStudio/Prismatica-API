@@ -11,13 +11,14 @@ from typing import Any
 
 from sqlalchemy import select
 
+from app.datetime_utils import toUtcIso
 from app.db import getDb
 from app.models import AuditLog, Bill, LicenseCode, UserAccount, UserBalance
 
 
 def _iso(dt: Any) -> str:
-    """datetime → ISO 字符串(空值输出空串)。"""
-    return dt.isoformat() if dt else ""
+    """datetime → 明确带 Z 的 UTC ISO 字符串(空值输出空串)。"""
+    return toUtcIso(dt)
 
 
 def exportUsers(limit: int = 5000) -> list[dict[str, Any]]:

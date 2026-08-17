@@ -180,8 +180,19 @@ def loginUser(
     user.failedLoginCount = 0
     user.lockedUntil = None
     device = _upsertDevice(db, user.id, deviceId, deviceName, platform)
-    accessToken = createAccessToken(user.id, deviceId, user.tier)
-    refreshToken, _record = issueRefreshToken(db, user.id, device.id, deviceId)
+    accessToken = createAccessToken(
+        user.id,
+        deviceId,
+        user.tier,
+        authVersion=int(user.authVersion or 0),
+    )
+    refreshToken, _record = issueRefreshToken(
+        db,
+        user.id,
+        device.id,
+        deviceId,
+        authVersion=int(user.authVersion or 0),
+    )
     db.flush()
     return AuthResult(
         user=user,
@@ -225,11 +236,19 @@ def refreshUserTokens(db: Session, rawRefreshToken: str, requestDeviceId: str) -
         or device.status != "active"
     ):
         raise ApiError("REFRESH_INVALID", httpStatus=401)
+    if int(claims.get("auth_version", 0)) != int(user.authVersion or 0):
+        raise ApiError("TOKEN_REVOKED", httpStatus=401)
 
     now = _now()
     record.revokedAt = now
     record.revokeReason = "rotated"
-    refreshToken, newRecord = issueRefreshToken(db, user.id, device.id, device.deviceId)
+    refreshToken, newRecord = issueRefreshToken(
+        db,
+        user.id,
+        device.id,
+        device.deviceId,
+        authVersion=int(user.authVersion or 0),
+    )
     record.replacedByJti = newRecord.jti
     revokeJti(
         db,
@@ -240,7 +259,12 @@ def refreshUserTokens(db: Session, rawRefreshToken: str, requestDeviceId: str) -
         reason="rotated",
     )
     device.lastSeenAt = now
-    accessToken = createAccessToken(user.id, device.deviceId, user.tier)
+    accessToken = createAccessToken(
+        user.id,
+        device.deviceId,
+        user.tier,
+        authVersion=int(user.authVersion or 0),
+    )
     db.flush()
     return AuthResult(
         user=user,

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import Field, field_validator
+
+from app.schemas.base import UtcResponseModel as BaseModel
 
 
 def _normalizeEmail(value: str) -> str:

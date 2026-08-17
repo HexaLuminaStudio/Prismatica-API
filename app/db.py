@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -38,6 +38,18 @@ engine: Engine = create_engine(
     },
     future=True,
 )
+
+
+@event.listens_for(engine, "connect")
+def _setMysqlSessionUtc(dbapiConnection, _connectionRecord) -> None:
+    """强制 MySQL 会话使用 UTC，保证 CURRENT_TIMESTAMP 与应用时间一致。"""
+    if engine.dialect.name != "mysql":
+        return
+    cursor = dbapiConnection.cursor()
+    try:
+        cursor.execute("SET time_zone = '+00:00'")
+    finally:
+        cursor.close()
 
 SessionLocal = sessionmaker(
     bind=engine,

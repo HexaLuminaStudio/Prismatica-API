@@ -24,9 +24,15 @@ def issueRefreshToken(
     deviceRecordId: int,
     devicePublicId: str,
     jti: str | None = None,
+    authVersion: int = 0,
 ) -> tuple[str, StoredRefreshToken]:
     """签发 Refresh Token 并加入当前 DB 事务。"""
-    rawToken = createRefreshToken(userId, devicePublicId, jti)
+    rawToken = createRefreshToken(
+        userId,
+        devicePublicId,
+        jti,
+        authVersion=authVersion,
+    )
     claims = decodeRefreshToken(rawToken)
     record = StoredRefreshToken(
         jti=str(claims["jti"]),

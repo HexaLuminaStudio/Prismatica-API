@@ -83,6 +83,10 @@ def getMe(db: Session, userId: int) -> MeOut:
     user = db.get(IdentityUser, userId)
     if user is None or user.deletedAt is not None:
         raise ApiError("NOT_FOUND", "用户不存在", httpStatus=404)
+    # 账户页读取余额前自愈过期预授权，避免定时任务中断时持续显示冻结。
+    from app.services.billing_service import releaseExpiredPreauths
+
+    releaseExpiredPreauths(db, userId=userId)
     # IdentityBalance.userId 是 String(36),但服务层以 BIGINT userId 接收。
     # 同时尝试 int / str 两种主键形式,保证正确命中(M7 升级 BIGINT 后可去除)。
     balance = db.get(IdentityBalance, userId) or db.get(IdentityBalance, str(userId))
@@ -260,6 +264,7 @@ def deleteAccount(
     user.status = "deleted"
     user.deletedAt = now
     user.passwordHash = "!"  # 清空密码 hash,即使被读出也无法登录
+    user.authVersion = int(user.authVersion or 0) + 1
     revokedCount = revokeAllRefreshTokens(db, userId, "account_deleted")
 
     # 软删后,把所有 active 设备也标 revoked(防御性)
@@ -273,10 +278,6 @@ def deleteAccount(
         .all()
     )
     for device in devices:
-        # 当前设备允许保留(便于其他接口在登录态下做轻量响应),
-        # 但其 refresh_token 已在 revokeAllRefreshTokens 中被撤销
-        if currentDevicePublicId and device.deviceId == currentDevicePublicId:
-            continue
         _revokeDeviceInternal(db, device)
 
     scheduled = now + timedelta(days=SOFT_DELETE_HARD_DELETE_DAYS)

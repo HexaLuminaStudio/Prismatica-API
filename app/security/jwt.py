@@ -21,6 +21,7 @@ def _createToken(
     jti: str | None,
     expiresIn: int,
     tier: str | None = None,
+    authVersion: int = 0,
 ) -> str:
     if not str(userId):
         raise ValueError("user_id 不能为空")
@@ -42,6 +43,7 @@ def _createToken(
         "iat": now,
         "exp": now + expiresIn,
         "ver": "v3",
+        "auth_version": max(0, int(authVersion)),
     }
     if tier is not None:
         payload["tier"] = tier
@@ -53,6 +55,8 @@ def createAccessToken(
     deviceId: str,
     tier: str,
     jti: str | None = None,
+    *,
+    authVersion: int = 0,
 ) -> str:
     """创建短期 Access Token。"""
     return _createToken(
@@ -62,6 +66,7 @@ def createAccessToken(
         jti,
         _settings.jwtAccessTtlSec,
         tier=tier,
+        authVersion=authVersion,
     )
 
 
@@ -69,6 +74,8 @@ def createRefreshToken(
     userId: int | str,
     deviceId: str,
     jti: str | None = None,
+    *,
+    authVersion: int = 0,
 ) -> str:
     """创建长期 Refresh Token；持久化由 auth service 在同一事务完成。"""
     return _createToken(
@@ -77,6 +84,7 @@ def createRefreshToken(
         "refresh",
         jti,
         _settings.jwtRefreshTtlSec,
+        authVersion=authVersion,
     )
 
 

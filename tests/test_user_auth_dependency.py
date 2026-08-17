@@ -6,7 +6,7 @@ from flask import Flask, g, jsonify
 
 from app import deps
 from app.errors import ApiError, registerErrorHandlers
-from app.models import IdentityDevice, RevokedToken
+from app.models import IdentityDevice, IdentityUser, RevokedToken
 from app.security.jwt import create_access_token
 from app.services.token_revocation_service import revoke_jti
 
@@ -25,10 +25,22 @@ class FakeDb:
         revokedJtis: set[str] | None = None,
         *,
         activeDevice: bool = True,
+        userStatus: str = "active",
+        userAuthVersion: int = 0,
     ) -> None:
         self.revokedJtis = revokedJtis or set()
         self.activeDevice = activeDevice
+        self.userStatus = userStatus
+        self.userAuthVersion = userAuthVersion
         self.added: list[object] = []
+        self.device = IdentityDevice(
+            id=1,
+            userId=42,
+            deviceId="device-42",
+            deviceName="test",
+            platform="test",
+            status="active",
+        )
 
     def get(self, model, key):
         if model is RevokedToken and key in self.revokedJtis:
@@ -39,21 +51,22 @@ class FakeDb:
                 reason="logout",
                 expiresAt=datetime.now(UTC).replace(tzinfo=None) + timedelta(minutes=5),
             )
+        if model is IdentityUser and key == 42:
+            return IdentityUser(
+                id=42,
+                email="user@example.com",
+                passwordHash="!",
+                displayName="User",
+                tier="pro",
+                status=self.userStatus,
+                authVersion=self.userAuthVersion,
+            )
         return None
 
     def execute(self, _statement):
         if not self.activeDevice:
             return _FakeScalarResult(None)
-        return _FakeScalarResult(
-            IdentityDevice(
-                id=1,
-                userId=42,
-                deviceId="device-42",
-                deviceName="test",
-                platform="test",
-                status="active",
-            )
-        )
+        return _FakeScalarResult(self.device)
 
     def add(self, value) -> None:
         self.added.append(value)
@@ -104,6 +117,54 @@ def testAuthenticateUserTokenRejectsRevokedDevice() -> None:
 
     assert captured.value.code == "TOKEN_REVOKED"
     assert captured.value.httpStatus == 401
+
+
+@pytest.mark.parametrize("status", ["paused", "banned", "deleted"])
+def testAuthenticateUserTokenRejectsInactiveUser(status: str) -> None:
+    token = create_access_token(42, "device-42", "pro", f"jti-{status}")
+
+    with pytest.raises(ApiError) as captured:
+        deps.authenticateUserToken(
+            token,
+            "device-42",
+            FakeDb(userStatus=status),
+        )
+
+    assert captured.value.code == "TOKEN_REVOKED"
+    assert captured.value.httpStatus == 401
+
+
+def testAuthenticateUserTokenUpdatesLastSeenFromRealRequest() -> None:
+    db = FakeDb()
+    before = datetime.now(UTC).replace(tzinfo=None)
+
+    deps.authenticateUserToken(
+        create_access_token(42, "device-42", "pro", "jti-activity"),
+        "device-42",
+        db,
+    )
+
+    assert db.device.lastSeenAt is not None
+    assert db.device.lastSeenAt >= before
+
+
+def testAuthenticateUserTokenRejectsOldAuthenticationVersion() -> None:
+    token = create_access_token(
+        42,
+        "device-42",
+        "pro",
+        "jti-old-version",
+        authVersion=0,
+    )
+
+    with pytest.raises(ApiError) as captured:
+        deps.authenticateUserToken(
+            token,
+            "device-42",
+            FakeDb(userAuthVersion=1),
+        )
+
+    assert captured.value.code == "TOKEN_REVOKED"
 
 
 def testRequireUserPublishesAuthenticatedContext(monkeypatch) -> None:

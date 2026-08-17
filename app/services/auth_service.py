@@ -297,8 +297,20 @@ def _buildResponse(
     device: IdentityDevice,
 ) -> RedeemResponse:
     balance = _ensureBalance(db, user.id)
-    accessToken = createAccessToken(user.id, device.deviceId, user.tier)
-    refreshToken, _record = issueRefreshToken(db, user.id, device.id, device.deviceId)
+    authVersion = int(user.authVersion or 0)
+    accessToken = createAccessToken(
+        user.id,
+        device.deviceId,
+        user.tier,
+        authVersion=authVersion,
+    )
+    refreshToken, _record = issueRefreshToken(
+        db,
+        user.id,
+        device.id,
+        device.deviceId,
+        authVersion=authVersion,
+    )
     db.flush()
     return RedeemResponse(
         mode=mode,

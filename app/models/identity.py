@@ -43,6 +43,9 @@ class User(IdentityBase):
     displayName: Mapped[str] = mapped_column("display_name", String(64), nullable=False, default="")
     tier: Mapped[str] = mapped_column(String(16), nullable=False, default="free")
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    authVersion: Mapped[int] = mapped_column(
+        "auth_version", BigInteger, nullable=False, default=0, server_default="0"
+    )
     failedLoginCount: Mapped[int] = mapped_column("failed_login_count", Integer, nullable=False, default=0)
     lockedUntil: Mapped[datetime | None] = mapped_column("locked_until", DateTime, nullable=True)
     emailVerified: Mapped[bool] = mapped_column("email_verified", nullable=False, default=False)

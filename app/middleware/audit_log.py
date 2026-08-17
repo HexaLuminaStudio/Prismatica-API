@@ -23,6 +23,7 @@ from flask import Flask, g, request
 from loguru import logger
 from sqlalchemy.orm import Session
 
+from app.datetime_utils import utcNowNaive
 from app.db import getDb
 from app.models.audit_log import AuditLog
 
@@ -78,6 +79,8 @@ def recordAudit(
             targetUser=targetUser,
             details=cleanDetails,
             ip=ip,
+            requestId=requestId,
+            createdAt=utcNowNaive(),
         )
         db.add(row)
         db.flush()

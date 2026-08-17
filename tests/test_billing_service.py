@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import create_engine, select
@@ -27,6 +27,7 @@ from app.services.billing_service import (
     estimate,
     preauth,
     refund,
+    releaseExpiredPreauths,
     settle,
     settleFixed,
     settleMetered,
@@ -116,6 +117,29 @@ def testPreauth_InsufficientBalanceRaises(db: Session) -> None:
     with pytest.raises(ApiError) as exc:
         preauth(db, user.id, "analysis_export", 50000)
     assert exc.value.code == "INSUFFICIENT_BALANCE"
+
+
+def testPreauth_ReleasesExpiredReservationBeforeCheckingBalance(db: Session) -> None:
+    user = _makeUserWithBalance(db, 5)
+    first = preauth(db, user.id, "analysis_export", 1000, taskId="first")
+    bill = db.execute(select(Bill).where(Bill.billId == first.billId)).scalar_one()
+    bill.preauthExpiresAt = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=1)
+    db.commit()
+
+    second = preauth(db, user.id, "analysis_export", 1000, taskId="second")
+
+    db.refresh(bill)
+    assert bill.status == "refunded"
+    assert second.estimatedCost == 5
+
+
+def testReleaseExpiredPreauths_DoesNotReleaseUnexpiredReservation(db: Session) -> None:
+    user = _makeUserWithBalance(db, 100)
+    result = preauth(db, user.id, "analysis_export", 1000)
+    bill = db.execute(select(Bill).where(Bill.billId == result.billId)).scalar_one()
+
+    assert releaseExpiredPreauths(db, userId=user.id) == 0
+    assert bill.status == "pending"
 
 
 # ---------------------------------------------------------------------------
@@ -218,6 +242,21 @@ def testSettle_NotPendingRaises(db: Session) -> None:
     with pytest.raises(ApiError) as exc:
         settle(db, preauthResp.billId, realCost=1)
     assert exc.value.code == "BILL_ALREADY_SETTLED"
+
+
+def testSettle_ExpiredPreauthReleasesReservation(db: Session) -> None:
+    user = _makeUserWithBalance(db, 100)
+    result = preauth(db, user.id, "analysis_export", 1000)
+    bill = db.execute(select(Bill).where(Bill.billId == result.billId)).scalar_one()
+    bill.preauthExpiresAt = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=1)
+    db.commit()
+
+    with pytest.raises(ApiError) as captured:
+        settle(db, result.billId, realCost=result.estimatedCost)
+
+    assert captured.value.code == "BILL_NOT_PENDING"
+    db.refresh(bill)
+    assert bill.status == "refunded"
 
 
 def testSettleFixed_IsIdempotentForClientRetry(db: Session) -> None:

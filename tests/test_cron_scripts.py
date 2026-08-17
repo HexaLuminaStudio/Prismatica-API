@@ -145,12 +145,33 @@ def test_cron_preauth_release_refunds_old_pending(dbCtx) -> None:
     with factory() as s:
         preauthResp = preauth(s, user.id, "analysis_export", 1000)
         bill = s.execute(select(Bill).where(Bill.billId == preauthResp.billId)).scalar_one()
-        bill.createdAt = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=10)
+        bill.preauthExpiresAt = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=1)
         s.commit()
 
-    stats = runOnce(olderThanMinutes=5, dryRun=False)
+    stats = runOnce(dryRun=False)
     assert stats["released"] >= 1
 
     with factory() as s:
         bill = s.execute(select(Bill).where(Bill.billId == preauthResp.billId)).scalar_one()
         assert bill.status == "refunded"
+
+
+def test_cron_preauth_release_keeps_unexpired_bill_even_if_created_old(dbCtx) -> None:
+    from app.services.billing_service import preauth
+    from scripts.cron_preauth_release import runOnce
+
+    user = _makeUser(dbCtx["factory"], balance=200)
+    factory = dbCtx["factory"]
+    with factory() as s:
+        preauthResp = preauth(s, user.id, "analysis_export", 1000)
+        bill = s.execute(select(Bill).where(Bill.billId == preauthResp.billId)).scalar_one()
+        bill.createdAt = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=1)
+        bill.preauthExpiresAt = datetime.now(UTC).replace(tzinfo=None) + timedelta(minutes=5)
+        s.commit()
+
+    stats = runOnce(dryRun=False)
+    assert stats["released"] == 0
+
+    with factory() as s:
+        bill = s.execute(select(Bill).where(Bill.billId == preauthResp.billId)).scalar_one()
+        assert bill.status == "pending"

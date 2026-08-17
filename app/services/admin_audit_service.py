@@ -16,6 +16,7 @@ from loguru import logger
 from sqlalchemy import func as saFunc
 from sqlalchemy import select
 
+from app.datetime_utils import parseUtcIso, toUtcIso, utcNowNaive
 from app.db import getDb
 from app.errors import ApiError
 from app.models import (
@@ -51,6 +52,7 @@ def recordAudit(
                     targetUser=targetUser,
                     details=details,
                     ip=ip,
+                    createdAt=utcNowNaive(),
                 )
             )
     except Exception as e:  # noqa: BLE001
@@ -66,7 +68,7 @@ def _parseCursor(cursor: str | None) -> datetime | None:
     if not cursor:
         return None
     try:
-        return datetime.fromisoformat(cursor.replace("Z", "+00:00"))
+        return parseUtcIso(cursor)
     except ValueError as e:
         raise ApiError("BAD_REQUEST", f"cursor 格式错误: {e}") from e
 
@@ -100,7 +102,7 @@ def listAudit(
 
         nextCursor: str | None = None
         if len(rows) > limit:
-            nextCursor = rows[limit - 1].createdAt.isoformat()
+            nextCursor = toUtcIso(rows[limit - 1].createdAt)
             rows = rows[:limit]
 
         items = [

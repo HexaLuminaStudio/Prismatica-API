@@ -285,6 +285,7 @@ def testDeleteAccount_SoftDeletesAndSchedulesHardDelete(db: Session) -> None:
     assert user.status == "deleted"
     assert user.deletedAt is not None
     assert user.passwordHash == "!"
+    assert user.authVersion == 1
     # 计划硬删时间 ≈ 现在 + 30 天
     expected = user.deletedAt + scheduledDelta
     delta = abs((scheduledAt - expected).total_seconds())
@@ -317,10 +318,10 @@ def testDeleteAccount_UnknownUserRaises(db: Session) -> None:
     assert exc.value.code == "NOT_FOUND"
 
 
-def testDeleteAccount_KeepsCurrentDeviceButRevokesOthers(db: Session) -> None:
-    """当前设备不强制撤销(允许登录态做轻量响应),但其他设备撤销。"""
+def testDeleteAccount_RevokesCurrentAndOtherDevices(db: Session) -> None:
+    """账号注销后所有 Access Token 都必须立即失效。"""
     user = _makeUser(db, "17")
-    _makeDevice(db, user, "device-current")
+    current = _makeDevice(db, user, "device-current")
     other = _makeDevice(db, user, "device-other")
 
     deleteAccount(
@@ -331,9 +332,10 @@ def testDeleteAccount_KeepsCurrentDeviceButRevokesOthers(db: Session) -> None:
     )
     db.commit()
 
-    db.refresh(other)
-    assert other.status == "revoked"
-    assert other.revokedAt is not None
+    for device in (current, other):
+        db.refresh(device)
+        assert device.status == "revoked"
+        assert device.revokedAt is not None
 
 
 # ---------------------------------------------------------------------------

@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 from app.db import Base
 from app.errors import ApiError
 from app.models.identity import User
+from app.security.jwt import decodeAccessToken
 from app.services.identity_auth_service import (
     login_user,
     logout,
@@ -51,6 +52,7 @@ def testRegisterAndLoginHappyPath(db: Session) -> None:
     assert result.user.id == user.id
     assert result.tokens.accessToken
     assert result.tokens.refreshToken
+    assert decodeAccessToken(result.tokens.accessToken)["auth_version"] == 0
 
 
 def testDuplicateEmailIsRejected(db: Session) -> None:
@@ -153,6 +155,25 @@ def testRefreshRejectsDifferentDevice(db: Session) -> None:
 
     assert captured.value.code == "REFRESH_INVALID"
     assert captured.value.httpStatus == 401
+
+
+def testRefreshRejectsOldAuthenticationVersion(db: Session) -> None:
+    user = register_user(db, "refresh-version@example.com", "Prismatica2026!")
+    db.commit()
+    login = login_user(
+        db,
+        "refresh-version@example.com",
+        "Prismatica2026!",
+        "version-device",
+    )
+    db.commit()
+    user.authVersion = 1
+    db.commit()
+
+    with pytest.raises(ApiError) as captured:
+        refresh_tokens(db, login.tokens.refreshToken, "version-device")
+
+    assert captured.value.code == "TOKEN_REVOKED"
 
 
 def testLogoutIsIdempotentAndRevokesRefresh(db: Session) -> None:

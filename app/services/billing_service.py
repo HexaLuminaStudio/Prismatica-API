@@ -207,6 +207,38 @@ def _recordIdempotency(
         db.rollback()
 
 
+def releaseExpiredPreauths(
+    db: Session,
+    *,
+    userId: int | None = None,
+    limit: int = 500,
+    dryRun: bool = False,
+    now: datetime | None = None,
+) -> int:
+    """按账单自己的到期时间释放 pending 预授权，返回处理数量。"""
+    cutoff = now or _now()
+    stmt = (
+        select(Bill)
+        .where(
+            Bill.status == "pending",
+            Bill.preauthExpiresAt <= cutoff,
+        )
+        .order_by(Bill.preauthExpiresAt.asc())
+        .limit(max(1, min(5000, int(limit))))
+    )
+    if userId is not None:
+        stmt = stmt.where(Bill.userId == int(userId))
+    bills = db.execute(stmt.with_for_update()).scalars().all()
+    if dryRun:
+        return len(bills)
+
+    released = 0
+    for bill in bills:
+        refund(db, bill.billId, operation="billing.expire_preauth")
+        released += 1
+    return released
+
+
 # ---------------------------------------------------------------------------
 # 计价(只读,无副作用)
 # ---------------------------------------------------------------------------
@@ -245,6 +277,8 @@ def preauth(
     estimatedOutputTokens: int = 0,
 ) -> PreauthResponse:
     """预占(冻结)余额;同时写 ledger(reserve)+ idempotency_keys。"""
+    # 定时任务短暂中断时，新预授权会先自愈该用户的过期冻结额。
+    releaseExpiredPreauths(db, userId=userId)
     pricing = pricing or getPricingService()
     quote = pricing.quote(
         actionType,
@@ -381,6 +415,9 @@ def settle(
         raise ApiError("BILL_ALREADY_SETTLED", "账单已结算", httpStatus=409)
     if bill.status != "pending":
         raise ApiError("BILL_NOT_PENDING", "账单不在待结算状态", httpStatus=409)
+    if bill.preauthExpiresAt <= _now():
+        refund(db, billId, operation="billing.expire_preauth")
+        raise ApiError("BILL_NOT_PENDING", "预授权已过期并释放", httpStatus=409)
 
     estimated = int(bill.estimatedCost or 0)
     if realCost < 0 or realCost > estimated:
@@ -662,6 +699,9 @@ class BillingService:
     def refund(self, db: Session, billId: str) -> RefundResponse:
         return refund(db, billId)
 
+    def releaseExpiredPreauths(self, db: Session, userId: int | None = None) -> int:
+        return releaseExpiredPreauths(db, userId=userId)
+
     def settleFixed(self, db: Session, billId: str) -> SettleResponse:
         return settleFixed(db, billId)
 
@@ -700,6 +740,7 @@ __all__ = [
     "settleFixed",
     "settleMetered",
     "settleTokens",
+    "releaseExpiredPreauths",
     "estimate_svc",
     "preauth_svc",
     "settle_svc",

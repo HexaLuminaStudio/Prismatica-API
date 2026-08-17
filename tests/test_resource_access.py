@@ -144,8 +144,9 @@ def testResourceTicketRejectsTamperingAndResourceReuse() -> None:
     assert claims.userId == 42
     assert claims.deviceId == "device-42"
 
+    replacement = "x" if ticket[-1] != "x" else "y"
     with pytest.raises(ApiError) as tampered:
-        verifyResourceTicket(f"{ticket[:-1]}x", "hskCorpus", "2026.08.1")
+        verifyResourceTicket(f"{ticket[:-1]}{replacement}", "hskCorpus", "2026.08.1")
     assert tampered.value.code == "RESOURCE_TICKET_INVALID"
 
     with pytest.raises(ApiError) as wrongResource:

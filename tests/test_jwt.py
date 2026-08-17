@@ -56,13 +56,20 @@ def test_invalid_token_rejected():
 
 
 def test_explicit_jti_is_preserved():
-    token = create_access_token(42, "device-42", "pro", "fixed-jti")
+    token = create_access_token(
+        42,
+        "device-42",
+        "pro",
+        "fixed-jti",
+        authVersion=7,
+    )
 
     payload = decodeAccessToken(token)
 
     assert payload["sub"] == "42"
     assert payload["jti"] == "fixed-jti"
     assert payload["tier"] == "pro"
+    assert payload["auth_version"] == 7
 
 
 def test_refresh_token_has_independent_type_and_jti():
