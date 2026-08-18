@@ -199,6 +199,9 @@ def listUsers(
             stmt = stmt.where(UserAccount.createdAt < cursorDt)
         if normalizedStatus:
             stmt = stmt.where(UserAccount.status == normalizedStatus)
+        else:
+            # 默认不返回已软删除用户,确保用户列表缺省仅展示当前有效账号.
+            stmt = stmt.where(UserAccount.status != "deleted")
         if normalizedTier:
             stmt = stmt.where(UserAccount.tier == normalizedTier)
         if after:

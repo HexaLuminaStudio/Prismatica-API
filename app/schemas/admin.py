@@ -122,7 +122,7 @@ class AdminUpdateUserRequest(BaseModel):
     """PATCH /v1/admin/users/{userId} 请求体。"""
 
     tier: str | None = Field(default=None, description="free / pro / team / guest / trial / beta / beta_pro / paid")
-    status: str | None = Field(default=None, description="active / paused / banned / deleted(可选)")
+    status: str | None = Field(default=None, description="active / paused / banned")
     email: str | None = Field(default=None, min_length=3, max_length=254)
     displayName: str | None = Field(default=None, max_length=64)
 
