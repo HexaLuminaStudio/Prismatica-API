@@ -5,7 +5,7 @@
     POST   /v1/admin/users                       新建用户
     GET    /v1/admin/users/{userId}              详情
     PATCH  /v1/admin/users/{userId}              修改 tier / status / email / displayName
-    DELETE /v1/admin/users/{userId}              软删除(需 confirm)
+    DELETE /v1/admin/users/{userId}              删除(需 confirm)
     POST   /v1/admin/users/{userId}/grant        加余额
     POST   /v1/admin/users/{userId}/reset-password 管理员重置密码
     POST   /v1/admin/users/{userId}/revoke-sessions 撤销该用户 refresh_token
@@ -119,7 +119,12 @@ def batchUsersRoute():
         payload = AdminBatchUsersRequest.model_validate(request.get_json(force=True, silent=False))
     except ValidationError as e:
         raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": e.errors()}) from e
-    result = batchUsers(action=payload.action, userIds=payload.userIds, status=payload.status)
+    result = batchUsers(
+        action=payload.action,
+        userIds=payload.userIds,
+        status=payload.status,
+        hardDelete=payload.hardDelete,
+    )
     data = AdminBatchUsersResponse(**result).model_dump()
     return successEnvelope(data)
 
@@ -155,9 +160,10 @@ def updateUserRoute(userId: str):
 @bp.delete("/<string:userId>")
 @requireAdminCookie
 def deleteUserRoute(userId: str):
-    """软删除用户(需 confirm 等于 userId)。"""
+    """删除用户(需 confirm 等于 userId)。"""
     confirm = (request.args.get("confirm") or "").strip()
-    result = deleteUser(userId=userId, confirm=confirm)
+    hardDelete = (request.args.get("hardDelete") or "").strip().lower() in {"1", "true", "yes", "on"}
+    result = deleteUser(userId=userId, confirm=confirm, hardDelete=hardDelete)
     data = AdminDeleteUserResponse(**result).model_dump()
     return successEnvelope(data)
 

@@ -148,6 +148,7 @@ class AdminBatchUsersRequest(BaseModel):
     action: str = Field(..., description="update_status / reset_password / delete")
     userIds: list[str] = Field(..., min_length=1, max_length=200)
     status: str | None = Field(default=None)
+    hardDelete: bool = Field(default=False, description="是否直接硬删除用户")
 
 
 class AdminBatchUsersResponse(BaseModel):

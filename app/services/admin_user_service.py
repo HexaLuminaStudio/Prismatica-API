@@ -6,6 +6,7 @@ import string
 from datetime import UTC, datetime, time
 from typing import Any
 
+from sqlalchemy import delete
 from sqlalchemy import func as saFunc
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
@@ -15,6 +16,10 @@ from app.db import getDb
 from app.errors import ApiError
 from app.models import (
     BalanceLedger,
+    Bill,
+    CodeRedemption,
+    IdempotencyKey,
+    RechargeRecord,
     StoredRefreshToken,
     Subscription,
     UserAccount,
@@ -129,6 +134,18 @@ def _revokeUserAuthentication(db, userId: int, reason: str) -> int:
         device.status = "revoked"
         device.revokedAt = now
     return revokeAllRefreshTokens(db, userId, reason)
+
+
+def _deleteUserDependencyRows(db, userId: int) -> dict[str, int]:
+    return {
+        "balanceLedger": db.execute(delete(BalanceLedger).where(BalanceLedger.userId == userId)).rowcount,
+        "subscription": db.execute(delete(Subscription).where(Subscription.userId == userId)).rowcount,
+        "codeRedemption": db.execute(delete(CodeRedemption).where(CodeRedemption.userId == userId)).rowcount,
+        "rechargeRecord": db.execute(delete(RechargeRecord).where(RechargeRecord.userId == userId)).rowcount,
+        "bill": db.execute(delete(Bill).where(Bill.userId == userId)).rowcount,
+        "idempotencyKey": db.execute(delete(IdempotencyKey).where(IdempotencyKey.userId == userId)).rowcount,
+        "refreshToken": db.execute(delete(StoredRefreshToken).where(StoredRefreshToken.userId == userId)).rowcount,
+    }
 
 
 def _deviceStats(db, userId: int) -> tuple[int, datetime | None]:
@@ -406,7 +423,7 @@ def resetUserPassword(userId: str) -> dict[str, Any]:
     return {"userId": str(numericUserId), "newPassword": newPassword}
 
 
-def deleteUser(userId: str, confirm: str = "") -> dict[str, Any]:
+def deleteUser(userId: str, confirm: str = "", hardDelete: bool = False) -> dict[str, Any]:
     numericUserId = _parseUserId(userId)
     if confirm != str(numericUserId):
         raise ApiError("BAD_REQUEST", "confirm 必须等于 userId")
@@ -415,13 +432,27 @@ def deleteUser(userId: str, confirm: str = "") -> dict[str, Any]:
         user = db.get(UserAccount, numericUserId)
         if user is None:
             raise ApiError("NOT_FOUND", "用户不存在")
-        user.status = "deleted"
-        user.deletedAt = now
-        user.passwordHash = "!"
+
         _revokeUserAuthentication(db, numericUserId, "admin_delete_user")
+        dependencyCounts = None
+        if hardDelete:
+            dependencyCounts = _deleteUserDependencyRows(db, numericUserId)
+            db.delete(user)
+        else:
+            user.status = "deleted"
+            user.deletedAt = now
+            user.passwordHash = "!"
         db.commit()
 
-    recordAudit(actor="admin", action="admin.delete_user", targetUser=str(numericUserId), details={"softDelete": True})
+    details: dict[str, Any] = {"hardDelete": hardDelete}
+    if dependencyCounts is not None:
+        details["dependencyCounts"] = dependencyCounts
+    recordAudit(
+        actor="admin",
+        action="admin.delete_user",
+        targetUser=str(numericUserId),
+        details=details,
+    )
     return {"userId": str(numericUserId), "deletedAt": now}
 
 
@@ -586,7 +617,9 @@ def listUserLedger(userId: str, limit: int = 20) -> list[dict[str, Any]]:
         ]
 
 
-def batchUsers(action: str, userIds: list[str], status: str | None = None) -> dict[str, Any]:
+def batchUsers(
+    action: str, userIds: list[str], status: str | None = None, hardDelete: bool = False
+) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     for rawUserId in userIds:
         try:
@@ -595,7 +628,13 @@ def batchUsers(action: str, userIds: list[str], status: str | None = None) -> di
             elif action == "reset_password":
                 results.append(resetUserPassword(rawUserId))
             elif action == "delete":
-                results.append(deleteUser(rawUserId, confirm=str(_parseUserId(rawUserId))))
+                results.append(
+                    deleteUser(
+                        rawUserId,
+                        confirm=str(_parseUserId(rawUserId)),
+                        hardDelete=hardDelete,
+                    )
+                )
             else:
                 raise ApiError("BAD_REQUEST", "不支持的批量操作")
         except ApiError as e:
