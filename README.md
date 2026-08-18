@@ -171,6 +171,7 @@ deploy/
 | 管理 | `GET /admin/health` | 无 | 后台健康检查 |
 | 管理 | `GET /v1/admin/users` | Cookie | 用户列表(分页 + 模糊搜索) |
 | 管理 | `GET /v1/admin/users/{userId}` | Cookie | 用户详情(含 device 数) |
+| 管理 | `DELETE /v1/admin/users/{userId}?confirm={userId}` | Cookie | 永久删除用户及其关联数据 |
 | 管理 | `POST /v1/admin/users/{userId}/revoke-sessions` | Cookie | 撤销该用户所有 refresh_token(强制下线) |
 | 管理 | `POST /v1/admin/users/{userId}/tier` | Cookie | 修改用户 tier / status |
 | 管理 | `GET /v1/admin/audit` | Cookie | 审计日志查询(action/actor/targetUser/days 过滤) |

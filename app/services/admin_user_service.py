@@ -19,7 +19,9 @@ from app.models import (
     Bill,
     CodeRedemption,
     IdempotencyKey,
+    PasswordResetToken,
     RechargeRecord,
+    RevokedToken,
     StoredRefreshToken,
     Subscription,
     UserAccount,
@@ -137,14 +139,21 @@ def _revokeUserAuthentication(db, userId: int, reason: str) -> int:
 
 
 def _deleteUserDependencyRows(db, userId: int) -> dict[str, int]:
+    """按外键依赖顺序清理用户数据，保证 MySQL RESTRICT 约束下也能硬删除。"""
     return {
-        "balanceLedger": db.execute(delete(BalanceLedger).where(BalanceLedger.userId == userId)).rowcount,
-        "subscription": db.execute(delete(Subscription).where(Subscription.userId == userId)).rowcount,
+        "refreshToken": db.execute(delete(StoredRefreshToken).where(StoredRefreshToken.userId == userId)).rowcount,
+        "revokedToken": db.execute(delete(RevokedToken).where(RevokedToken.userId == userId)).rowcount,
+        "passwordResetToken": db.execute(
+            delete(PasswordResetToken).where(PasswordResetToken.userId == userId)
+        ).rowcount,
+        "idempotencyKey": db.execute(delete(IdempotencyKey).where(IdempotencyKey.userId == userId)).rowcount,
         "codeRedemption": db.execute(delete(CodeRedemption).where(CodeRedemption.userId == userId)).rowcount,
+        "subscription": db.execute(delete(Subscription).where(Subscription.userId == userId)).rowcount,
         "rechargeRecord": db.execute(delete(RechargeRecord).where(RechargeRecord.userId == userId)).rowcount,
         "bill": db.execute(delete(Bill).where(Bill.userId == userId)).rowcount,
-        "idempotencyKey": db.execute(delete(IdempotencyKey).where(IdempotencyKey.userId == userId)).rowcount,
-        "refreshToken": db.execute(delete(StoredRefreshToken).where(StoredRefreshToken.userId == userId)).rowcount,
+        "balanceLedger": db.execute(delete(BalanceLedger).where(BalanceLedger.userId == userId)).rowcount,
+        "device": db.execute(delete(UserDevice).where(UserDevice.userId == userId)).rowcount,
+        "balance": db.execute(delete(UserBalance).where(UserBalance.userId == userId)).rowcount,
     }
 
 
@@ -423,7 +432,8 @@ def resetUserPassword(userId: str) -> dict[str, Any]:
     return {"userId": str(numericUserId), "newPassword": newPassword}
 
 
-def deleteUser(userId: str, confirm: str = "", hardDelete: bool = False) -> dict[str, Any]:
+def deleteUser(userId: str, confirm: str = "") -> dict[str, Any]:
+    """由 Admin 永久删除用户及其全部关联业务数据。"""
     numericUserId = _parseUserId(userId)
     if confirm != str(numericUserId):
         raise ApiError("BAD_REQUEST", "confirm 必须等于 userId")
@@ -434,24 +444,15 @@ def deleteUser(userId: str, confirm: str = "", hardDelete: bool = False) -> dict
             raise ApiError("NOT_FOUND", "用户不存在")
 
         _revokeUserAuthentication(db, numericUserId, "admin_delete_user")
-        dependencyCounts = None
-        if hardDelete:
-            dependencyCounts = _deleteUserDependencyRows(db, numericUserId)
-            db.delete(user)
-        else:
-            user.status = "deleted"
-            user.deletedAt = now
-            user.passwordHash = "!"
+        dependencyCounts = _deleteUserDependencyRows(db, numericUserId)
+        db.delete(user)
         db.commit()
 
-    details: dict[str, Any] = {"hardDelete": hardDelete}
-    if dependencyCounts is not None:
-        details["dependencyCounts"] = dependencyCounts
     recordAudit(
         actor="admin",
         action="admin.delete_user",
         targetUser=str(numericUserId),
-        details=details,
+        details={"hardDelete": True, "dependencyCounts": dependencyCounts},
     )
     return {"userId": str(numericUserId), "deletedAt": now}
 
@@ -630,7 +631,11 @@ def listUserLedger(userId: str, limit: int = 20) -> list[dict[str, Any]]:
         ]
 
 
-def batchUsers(action: str, userIds: list[str], status: str | None = None, hardDelete: bool = False) -> dict[str, Any]:
+def batchUsers(
+    action: str,
+    userIds: list[str],
+    status: str | None = None,
+) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     for rawUserId in userIds:
         try:
@@ -643,7 +648,6 @@ def batchUsers(action: str, userIds: list[str], status: str | None = None, hardD
                     deleteUser(
                         rawUserId,
                         confirm=str(_parseUserId(rawUserId)),
-                        hardDelete=hardDelete,
                     )
                 )
             else:

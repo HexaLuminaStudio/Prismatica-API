@@ -124,7 +124,6 @@ def batchUsersRoute():
         action=payload.action,
         userIds=payload.userIds,
         status=payload.status,
-        hardDelete=payload.hardDelete,
     )
     data = AdminBatchUsersResponse(**result).model_dump()
     return successEnvelope(data)
@@ -161,10 +160,9 @@ def updateUserRoute(userId: str):
 @bp.delete("/<string:userId>")
 @requireAdminCookie
 def deleteUserRoute(userId: str):
-    """删除用户(需 confirm 等于 userId)。"""
+    """永久删除用户及其关联数据(需 confirm 等于 userId)。"""
     confirm = (request.args.get("confirm") or "").strip()
-    hardDelete = (request.args.get("hardDelete") or "").strip().lower() in {"1", "true", "yes", "on"}
-    result = deleteUser(userId=userId, confirm=confirm, hardDelete=hardDelete)
+    result = deleteUser(userId=userId, confirm=confirm)
     data = AdminDeleteUserResponse(**result).model_dump()
     return successEnvelope(data)
 
