@@ -22,9 +22,7 @@ class AdminUser(Base):
 
     __tablename__ = "admin_users"
 
-    userId: Mapped[str] = mapped_column(
-        "user_id", String(36), primary_key=True, comment="管理员 UUID"
-    )
+    userId: Mapped[str] = mapped_column("user_id", String(36), primary_key=True, comment="管理员 UUID")
     username: Mapped[str] = mapped_column(
         "username", String(64), nullable=False, comment="登录用户名(唯一,软删后永久占用)"
     )
@@ -45,9 +43,7 @@ class AdminUser(Base):
         default="active",
         comment="active / locked",
     )
-    lastLoginAt: Mapped[datetime | None] = mapped_column(
-        "last_login_at", DateTime, nullable=True
-    )
+    lastLoginAt: Mapped[datetime | None] = mapped_column("last_login_at", DateTime, nullable=True)
     failedAttempts: Mapped[int] = mapped_column(
         "failed_attempts", Integer, nullable=False, default=0, comment="连续失败次数"
     )
@@ -63,9 +59,7 @@ class AdminUser(Base):
         nullable=True,
         comment="密码重置时间戳;cookie 颁发时间早于此值即失效",
     )
-    createdAt: Mapped[datetime] = mapped_column(
-        "created_at", DateTime, server_default=func.current_timestamp()
-    )
+    createdAt: Mapped[datetime] = mapped_column("created_at", DateTime, server_default=func.current_timestamp())
     updatedAt: Mapped[datetime] = mapped_column(
         "updated_at",
         DateTime,

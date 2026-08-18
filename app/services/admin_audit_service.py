@@ -7,6 +7,7 @@
 - lookupCode(rawCode) → 查某个码的状态
 - metricsSummary() → 看板聚合
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -174,9 +175,7 @@ def listCodes(
                 "status": "consumed" if r.status == "exhausted" else r.status,
                 "grantedBalance": r.monthlyQuota if r.codeKind in {"INV", "TRY"} else None,
                 "grantedDays": (
-                    (r.periodMonths * 30 if r.periodMonths else None)
-                    if r.codeKind == "INV"
-                    else r.trialDays
+                    (r.periodMonths * 30 if r.periodMonths else None) if r.codeKind == "INV" else r.trialDays
                 ),
                 "tier": r.planCode if r.codeKind == "INV" else ("pro" if r.codeKind == "TRY" else None),
                 "amount": r.amount,
@@ -241,19 +240,12 @@ def revokeCode(codeHash: str) -> dict[str, Any]:
 def metricsSummary() -> dict[str, Any]:
     """看板 KPI:用户总数 / 7 日活跃 / grant 总额 / 账单状态分布。"""
     with getDb() as db:
-        userCount = int(
-            db.execute(
-                select(saFunc.count()).select_from(UserAccount)
-            ).scalar_one()
-            or 0
-        )
+        userCount = int(db.execute(select(saFunc.count()).select_from(UserAccount)).scalar_one() or 0)
         since = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=7)
 
         sevenDayActive = int(
             db.execute(
-                select(saFunc.count())
-                .select_from(UserDevice)
-                .where(UserDevice.lastSeenAt >= since)
+                select(saFunc.count()).select_from(UserDevice).where(UserDevice.lastSeenAt >= since)
             ).scalar_one()
             or 0
         )
@@ -267,26 +259,17 @@ def metricsSummary() -> dict[str, Any]:
             or 0
         )
         billsPending = int(
-            db.execute(
-                select(saFunc.count())
-                .select_from(Bill)
-                .where(Bill.status == "pending")
-            ).scalar_one()
-            or 0
+            db.execute(select(saFunc.count()).select_from(Bill).where(Bill.status == "pending")).scalar_one() or 0
         )
         billsSettledLast7 = int(
             db.execute(
-                select(saFunc.count())
-                .select_from(Bill)
-                .where(Bill.status == "settled", Bill.createdAt >= since)
+                select(saFunc.count()).select_from(Bill).where(Bill.status == "settled", Bill.createdAt >= since)
             ).scalar_one()
             or 0
         )
         billsRefundedLast7 = int(
             db.execute(
-                select(saFunc.count())
-                .select_from(Bill)
-                .where(Bill.status == "refunded", Bill.createdAt >= since)
+                select(saFunc.count()).select_from(Bill).where(Bill.status == "refunded", Bill.createdAt >= since)
             ).scalar_one()
             or 0
         )
@@ -339,7 +322,9 @@ def codesKpi() -> dict[str, Any]:
         )
         revokedLast7Days = int(
             db.execute(
-                select(saFunc.count()).select_from(LicenseCode).where(
+                select(saFunc.count())
+                .select_from(LicenseCode)
+                .where(
                     LicenseCode.status == "revoked",
                     LicenseCode.revokedAt >= since,
                 )

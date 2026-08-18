@@ -1,4 +1,5 @@
 """Admin 用户管理服务。"""
+
 from __future__ import annotations
 
 import secrets
@@ -118,17 +119,17 @@ def _balanceFor(userId: int) -> UserBalance:
 def _revokeUserAuthentication(db, userId: int, reason: str) -> int:
     """撤销用户全部设备与 Refresh Token，使既有 Access Token 立即失效。"""
     now = _now()
-    user = db.execute(
-        select(UserAccount).where(UserAccount.id == userId).with_for_update()
-    ).scalar_one_or_none()
+    user = db.execute(select(UserAccount).where(UserAccount.id == userId).with_for_update()).scalar_one_or_none()
     if user is None:
         raise ApiError("NOT_FOUND", "用户不存在")
     user.authVersion = int(user.authVersion or 0) + 1
-    devices = db.execute(
-        select(UserDevice)
-        .where(UserDevice.userId == userId, UserDevice.status == "active")
-        .with_for_update()
-    ).scalars().all()
+    devices = (
+        db.execute(
+            select(UserDevice).where(UserDevice.userId == userId, UserDevice.status == "active").with_for_update()
+        )
+        .scalars()
+        .all()
+    )
     for device in devices:
         device.status = "revoked"
         device.revokedAt = now
@@ -149,10 +150,7 @@ def _deleteUserDependencyRows(db, userId: int) -> dict[str, int]:
 
 def _deviceStats(db, userId: int) -> tuple[int, datetime | None]:
     deviceCount = int(
-        db.execute(
-            select(saFunc.count()).select_from(UserDevice).where(UserDevice.userId == userId)
-        ).scalar_one()
-        or 0
+        db.execute(select(saFunc.count()).select_from(UserDevice).where(UserDevice.userId == userId)).scalar_one() or 0
     )
     lastSeenAt = db.execute(
         select(saFunc.max(UserDevice.lastSeenAt)).where(UserDevice.userId == userId)
@@ -460,12 +458,16 @@ def listUserSubscriptions(userId: str) -> list[dict[str, Any]]:
     with getDb() as db:
         if db.get(UserAccount, numericUserId) is None:
             raise ApiError("NOT_FOUND", "用户不存在")
-        items = db.execute(
-            select(Subscription)
-            .where(Subscription.userId == numericUserId)
-            .order_by(Subscription.createdAt.desc())
-            .limit(100)
-        ).scalars().all()
+        items = (
+            db.execute(
+                select(Subscription)
+                .where(Subscription.userId == numericUserId)
+                .order_by(Subscription.createdAt.desc())
+                .limit(100)
+            )
+            .scalars()
+            .all()
+        )
         return [
             {
                 "subscriptionId": str(item.id),
@@ -486,9 +488,7 @@ def createUserSubscription(userId: str, planCode: str) -> dict[str, Any]:
     numericUserId = _parseUserId(userId)
     with getDb() as db:
         user = db.execute(
-            select(UserAccount)
-            .where(UserAccount.id == numericUserId)
-            .with_for_update()
+            select(UserAccount).where(UserAccount.id == numericUserId).with_for_update()
         ).scalar_one_or_none()
         if user is None:
             raise ApiError("NOT_FOUND", "用户不存在")
@@ -538,12 +538,16 @@ def listUserDevices(userId: str) -> list[dict[str, Any]]:
     with getDb() as db:
         if db.get(UserAccount, numericUserId) is None:
             raise ApiError("NOT_FOUND", "用户不存在")
-        items = db.execute(
-            select(UserDevice)
-            .where(UserDevice.userId == numericUserId)
-            .order_by(UserDevice.lastSeenAt.desc())
-            .limit(100)
-        ).scalars().all()
+        items = (
+            db.execute(
+                select(UserDevice)
+                .where(UserDevice.userId == numericUserId)
+                .order_by(UserDevice.lastSeenAt.desc())
+                .limit(100)
+            )
+            .scalars()
+            .all()
+        )
         return [
             {
                 "deviceId": item.deviceId,
@@ -570,12 +574,15 @@ def revokeUserDevice(userId: str, deviceId: str) -> dict[str, Any]:
             raise ApiError("NOT_FOUND", "设备不存在")
         device.status = "revoked"
         device.revokedAt = now
-        tokens = db.execute(
-            select(StoredRefreshToken)
-            .where(
-                StoredRefreshToken.deviceId == device.id, StoredRefreshToken.revokedAt.is_(None)
+        tokens = (
+            db.execute(
+                select(StoredRefreshToken).where(
+                    StoredRefreshToken.deviceId == device.id, StoredRefreshToken.revokedAt.is_(None)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for token in tokens:
             token.revokedAt = now
             token.revokeReason = "admin_revoke_device"
@@ -596,12 +603,16 @@ def listUserLedger(userId: str, limit: int = 20) -> list[dict[str, Any]]:
     with getDb() as db:
         if db.get(UserAccount, numericUserId) is None:
             raise ApiError("NOT_FOUND", "用户不存在")
-        items = db.execute(
-            select(BalanceLedger)
-            .where(BalanceLedger.userId == numericUserId)
-            .order_by(BalanceLedger.createdAt.desc())
-            .limit(limit)
-        ).scalars().all()
+        items = (
+            db.execute(
+                select(BalanceLedger)
+                .where(BalanceLedger.userId == numericUserId)
+                .order_by(BalanceLedger.createdAt.desc())
+                .limit(limit)
+            )
+            .scalars()
+            .all()
+        )
         return [
             {
                 "ledgerId": str(item.id),
@@ -616,9 +627,7 @@ def listUserLedger(userId: str, limit: int = 20) -> list[dict[str, Any]]:
         ]
 
 
-def batchUsers(
-    action: str, userIds: list[str], status: str | None = None, hardDelete: bool = False
-) -> dict[str, Any]:
+def batchUsers(action: str, userIds: list[str], status: str | None = None, hardDelete: bool = False) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     for rawUserId in userIds:
         try:

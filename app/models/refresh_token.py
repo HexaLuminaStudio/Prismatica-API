@@ -11,6 +11,7 @@ M3 路由切换后,refresh_tokens 表由 stored_refresh_token.StoredRefreshToken
 ORM 操作会走 StoredRefreshToken 的 mapper。两套类的列名 / 类型不同,
 但查表路径是同一张 Table,数据是一致的。
 """
+
 from __future__ import annotations
 
 from app.models.stored_refresh_token import StoredRefreshToken

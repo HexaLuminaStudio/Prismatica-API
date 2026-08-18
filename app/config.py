@@ -10,6 +10,7 @@
 字段命名:沿用项目小驼峰规范(`dbHost`),通过 `alias` 映射到
     环境变量名 `DB_HOST` / `DB_PORT` 等标准大写下划线写法。
 """
+
 from __future__ import annotations
 
 from functools import lru_cache
@@ -72,9 +73,7 @@ class Settings(BaseSettings):
 
     # ---- Redis ----
     redisUrl: str = Field(default="redis://127.0.0.1:6379/0", alias="REDIS_URL")
-    rateLimitStorageUri: str = Field(
-        default="memory://", alias="RATELIMIT_STORAGE_URI"
-    )
+    rateLimitStorageUri: str = Field(default="memory://", alias="RATELIMIT_STORAGE_URI")
 
     # ---- HMAC / JWT ----
     licenseSecret: str = Field(
@@ -211,10 +210,7 @@ class Settings(BaseSettings):
     adminCookieSecure: bool = Field(
         default=False,
         alias="ADMIN_COOKIE_SECURE",
-        description=(
-            "(2026-08-06 M2 cors-fix) cookie Secure 标记;"
-            "HTTPS 或跨端口(需 SameSite=None)部署时设 true"
-        ),
+        description=("(2026-08-06 M2 cors-fix) cookie Secure 标记;HTTPS 或跨端口(需 SameSite=None)部署时设 true"),
     )
 
     # ---- 限流 ----

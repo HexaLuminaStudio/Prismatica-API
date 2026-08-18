@@ -4,6 +4,7 @@ preauth → settle → bills 全流程。
 执行:
     uv run python scripts/smoke_test.py
 """
+
 from __future__ import annotations
 
 import base64
@@ -45,9 +46,7 @@ def makeInvite() -> str:
         expireAt=datetime.utcnow() + timedelta(days=14),
     ).model_dump(mode="json")
     payload["signature"] = hmacUtil.signPayload(payload)
-    return base64.b64encode(
-        json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    ).decode("ascii")
+    return base64.b64encode(json.dumps(payload, ensure_ascii=False).encode("utf-8")).decode("ascii")
 
 
 def main() -> int:
@@ -99,9 +98,7 @@ def main() -> int:
     _ok("settle", settleResp)
 
     _hr("5) GET /v1/account/bills")
-    billsResp = requests.get(
-        f"{BASE}/v1/account/bills?limit=10", headers=authHeader, timeout=10
-    )
+    billsResp = requests.get(f"{BASE}/v1/account/bills?limit=10", headers=authHeader, timeout=10)
     _ok("bills", billsResp)
 
     _hr("6) POST /v1/auth/refresh(滚动续期)")
@@ -115,9 +112,7 @@ def main() -> int:
     newAccess = refreshBody["tokens"]["accessToken"]
 
     _hr("7) GET /v1/account/me(用新 access)")
-    me2 = requests.get(
-        f"{BASE}/v1/account/me", headers={"Authorization": f"Bearer {newAccess}"}, timeout=10
-    )
+    me2 = requests.get(f"{BASE}/v1/account/me", headers={"Authorization": f"Bearer {newAccess}"}, timeout=10)
     _ok("me-after-refresh", me2)
 
     print("\n[ALL OK] 烟测全链路通过")

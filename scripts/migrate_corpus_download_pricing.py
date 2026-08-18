@@ -1,4 +1,5 @@
 """执行语料下载与 HSK 作文导出计费迁移。"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -25,8 +26,7 @@ def migrateUpCorpusPricing(connection: Connection, statements: list[str]) -> boo
         statement
         for statement in statements
         if not (
-            statement.startswith("ALTER TABLE pricing_rules ADD COLUMN unit_size")
-            and "unit_size" in existingColumns
+            statement.startswith("ALTER TABLE pricing_rules ADD COLUMN unit_size") and "unit_size" in existingColumns
         )
     ]
     return _baseMigrateUp(connection, filteredStatements)

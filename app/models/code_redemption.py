@@ -5,6 +5,7 @@
 
 唯一约束:(code_id, user_id)— 同一用户对同一码只能产生一条成功记录。
 """
+
 from __future__ import annotations
 
 from datetime import datetime

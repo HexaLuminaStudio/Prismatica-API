@@ -1,4 +1,5 @@
 """/healthz + /metrics + /openapi.json(公共端点)。"""
+
 from __future__ import annotations
 
 from flask import Blueprint, Response, current_app, jsonify
@@ -46,9 +47,7 @@ def openapi():
             continue
         if not (path.startswith("/v1/") or path.startswith("/admin/")):
             continue
-        methods = sorted(
-            m for m in rule.methods if m in ("GET", "POST", "PUT", "DELETE", "PATCH")
-        )
+        methods = sorted(m for m in rule.methods if m in ("GET", "POST", "PUT", "DELETE", "PATCH"))
         entry: dict = {}
         for method in methods:
             entry[method.lower()] = {

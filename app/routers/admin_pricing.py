@@ -1,4 +1,5 @@
 """管理后台定价中心路由。"""
+
 from __future__ import annotations
 
 from flask import Blueprint, g, request

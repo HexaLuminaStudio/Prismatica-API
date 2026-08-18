@@ -44,9 +44,7 @@ def _ensureRootAdmin() -> bool:
             if existing.role != "owner" and existing.deletedAt is None:
                 existing.role = "owner"
                 db.commit()
-                logger.info(
-                    f"[seed_admin] root 已存在,role 已从 {existing.role} 升级为 owner"
-                )
+                logger.info(f"[seed_admin] root 已存在,role 已从 {existing.role} 升级为 owner")
             else:
                 logger.info("[seed_admin] root 已存在,跳过种子")
             return False
@@ -54,9 +52,7 @@ def _ensureRootAdmin() -> bool:
         bootstrap = (settings.adminBootstrapPassword or "").strip()
         if not bootstrap:
             bootstrap = secrets.token_urlsafe(24)
-            logger.warning(
-                "[seed_admin] ADMIN_BOOTSTRAP_PASSWORD 未设置,自动生成临时 root 密码(已打印 1 次)"
-            )
+            logger.warning("[seed_admin] ADMIN_BOOTSTRAP_PASSWORD 未设置,自动生成临时 root 密码(已打印 1 次)")
             # 仅一次性打印到 stderr(供部署脚本捕获),不会进 log 文件
             sys.stderr.write(
                 f"\n!!! ROOT ADMIN TEMP PASSWORD (请立即修改并保存) !!!\n"
@@ -76,9 +72,7 @@ def _ensureRootAdmin() -> bool:
         )
         db.add(admin)
         db.flush()
-        logger.info(
-            f"[seed_admin] 已创建 root 账号: user_id={admin.userId} role=owner"
-        )
+        logger.info(f"[seed_admin] 已创建 root 账号: user_id={admin.userId} role=owner")
         return True
 
 

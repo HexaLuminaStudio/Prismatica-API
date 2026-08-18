@@ -119,10 +119,7 @@ def buildResourceManifests(
             resource.key,
             resource.version,
         )
-        downloadUrl = (
-            f"{baseUrl}/v1/resources/download/{resource.key}"
-            f"?ticket={quote(ticket, safe='')}"
-        )
+        downloadUrl = f"{baseUrl}/v1/resources/download/{resource.key}?ticket={quote(ticket, safe='')}"
         manifests.append(
             ResourceManifestOut(
                 resourceKey=resource.key,

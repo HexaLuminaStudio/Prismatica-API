@@ -6,6 +6,7 @@
 
 不与 SQLAlchemy ORM 混在一起,保持纯数据类形态。
 """
+
 from __future__ import annotations
 
 from datetime import datetime

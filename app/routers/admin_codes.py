@@ -8,6 +8,7 @@
 
 业务由 admin_code_service / admin_audit_service 承载。
 """
+
 from __future__ import annotations
 
 from flask import Blueprint, g, request
@@ -40,9 +41,7 @@ def _actor() -> str:
 def postIssueCodes():
     """批量签发凭证,立即持久化到 license_codes 表。"""
     try:
-        payload = AdminIssueCodesRequest.model_validate(
-            request.get_json(force=True, silent=False)
-        )
+        payload = AdminIssueCodesRequest.model_validate(request.get_json(force=True, silent=False))
     except ValidationError as e:
         raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": e.errors()}) from e
 
@@ -56,9 +55,7 @@ def postIssueCodes():
         note=payload.note,
         issuedBy=_actor(),
     )
-    data = AdminIssueCodesResponse(
-        items=[AdminIssuedCodeItem(**i) for i in items]
-    ).model_dump(mode="json")
+    data = AdminIssueCodesResponse(items=[AdminIssuedCodeItem(**i) for i in items]).model_dump(mode="json")
     return successEnvelope(data)
 
 

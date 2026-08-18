@@ -7,6 +7,7 @@
 为何不放在 bills.idempotency_key:每种操作的幂等键作用域不同,本表可以
 统一处理多种 operation 而不需要为每种资源各加唯一约束。
 """
+
 from __future__ import annotations
 
 from datetime import datetime

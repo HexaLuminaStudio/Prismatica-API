@@ -6,6 +6,7 @@
 
 业务由 admin_bill_service 承载。
 """
+
 from __future__ import annotations
 
 from flask import Blueprint, request

@@ -77,9 +77,7 @@ def test_try_parse_rejects_missing_signature():
 def test_try_parse_rejects_missing_code_field():
     import base64
 
-    payload = base64.b64encode(
-        b'{"signature":"abc","grantedBalance":100}'
-    ).decode("ascii")
+    payload = base64.b64encode(b'{"signature":"abc","grantedBalance":100}').decode("ascii")
     ok, info = _tryParseSigned(payload)
     assert ok is False
     assert "'code' field" in info

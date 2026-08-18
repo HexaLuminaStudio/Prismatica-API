@@ -6,6 +6,7 @@
     - 幂等性:同 code + user 二次 redeem 只产生一条 CodeRedemption
     - 过期迁移:expireSubscription 把 tier 回 free
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -81,9 +82,7 @@ def testCreateSubscription_GrantsInitialQuotaAndWritesLedger(db: Session) -> Non
     assert user.tier == "pro"
 
     # balance_ledger 写入
-    ledger = db.execute(
-        select(BalanceLedger).where(BalanceLedger.userId == user.id)
-    ).scalars().all()
+    ledger = db.execute(select(BalanceLedger).where(BalanceLedger.userId == user.id)).scalars().all()
     assert len(ledger) == 1
     assert ledger[0].entryType == "grant"
     assert ledger[0].amount == 200
@@ -135,9 +134,7 @@ def testGrantMonthlyQuota_AppendsLedgerAndKeepsBalance(db: Session) -> None:
     grantMonthlyQuota(db, sub)
     db.commit()
 
-    ledgers = db.execute(
-        select(BalanceLedger).where(BalanceLedger.userId == user.id)
-    ).scalars().all()
+    ledgers = db.execute(select(BalanceLedger).where(BalanceLedger.userId == user.id)).scalars().all()
     # 1 + 1 = 2
     assert len(ledgers) == 2
     assert all(int(ledger.amount) == 200 for ledger in ledgers)
@@ -172,9 +169,7 @@ def testRedeemInviteCode_CreatesSubscriptionAndGrantsBalance(db: Session) -> Non
     db.commit()
     assert sub is not None
     assert sub.planCode == PLAN_PRO_MONTHLY
-    ledgers = db.execute(
-        select(BalanceLedger).where(BalanceLedger.userId == user.id)
-    ).scalars().all()
+    ledgers = db.execute(select(BalanceLedger).where(BalanceLedger.userId == user.id)).scalars().all()
     assert len(ledgers) == 1
     assert ledgers[0].amount == 500
     assert ledgers[0].source == "invite_grant"
@@ -185,9 +180,7 @@ def testRedeemInviteCode_ZeroDaysSkipsSubscription(db: Session) -> None:
     sub, _ = redeemInviteCode(db, user.id, grantedBalance=50, grantedDays=0, codeId=0)
     db.commit()
     assert sub is None
-    ledgers = db.execute(
-        select(BalanceLedger).where(BalanceLedger.userId == user.id)
-    ).scalars().all()
+    ledgers = db.execute(select(BalanceLedger).where(BalanceLedger.userId == user.id)).scalars().all()
     assert len(ledgers) == 1
 
 
@@ -205,12 +198,8 @@ def testRedeemRechargeCode_OnlyAddsBalance(db: Session) -> None:
     amount = redeemRechargeCode(db, user.id, amount=300, codeId=0)
     db.commit()
     assert amount == 300
-    subs = db.execute(
-        select(Subscription).where(Subscription.userId == user.id)
-    ).scalars().all()
+    subs = db.execute(select(Subscription).where(Subscription.userId == user.id)).scalars().all()
     assert len(subs) == 0
-    ledgers = db.execute(
-        select(BalanceLedger).where(BalanceLedger.userId == user.id)
-    ).scalars().all()
+    ledgers = db.execute(select(BalanceLedger).where(BalanceLedger.userId == user.id)).scalars().all()
     assert len(ledgers) == 1
     assert ledgers[0].source == "recharge_code"

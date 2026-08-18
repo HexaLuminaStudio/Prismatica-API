@@ -6,6 +6,7 @@
 
 所有时间过滤基于 created_at(naive UTC,与库内其它服务一致)。
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -42,9 +43,7 @@ def _toItem(row: Bill, displayName: str | None) -> dict[str, Any]:
         "actionDisplayName": str(snapshot.get("displayName") or row.feature),
         "estimatedCost": int(row.estimatedCost or 0),
         "realCost": int(row.actualCost or 0),
-        "resourceUsed": int(
-            snapshot.get("quotedResourceUsed", (inputTokens or 0) + (outputTokens or 0)) or 0
-        ),
+        "resourceUsed": int(snapshot.get("quotedResourceUsed", (inputTokens or 0) + (outputTokens or 0)) or 0),
         "balanceBefore": 0,
         "balanceAfter": 0,
         "status": row.status,

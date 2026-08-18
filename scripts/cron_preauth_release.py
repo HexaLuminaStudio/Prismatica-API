@@ -10,6 +10,7 @@
     python -m scripts.cron_preauth_release
     python -m scripts.cron_preauth_release --dry-run
 """
+
 from __future__ import annotations
 
 import argparse

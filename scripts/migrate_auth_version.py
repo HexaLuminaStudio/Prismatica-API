@@ -1,4 +1,5 @@
 """执行用户认证版本号迁移。"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -24,10 +25,7 @@ def migrateUpAuthVersion(connection: Connection, statements: list[str]) -> bool:
     filteredStatements = [
         statement
         for statement in statements
-        if not (
-            statement.startswith("ALTER TABLE users ADD COLUMN auth_version")
-            and "auth_version" in existingColumns
-        )
+        if not (statement.startswith("ALTER TABLE users ADD COLUMN auth_version") and "auth_version" in existingColumns)
     ]
     return _baseMigrateUp(connection, filteredStatements)
 

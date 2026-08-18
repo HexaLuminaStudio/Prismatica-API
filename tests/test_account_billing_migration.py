@@ -39,15 +39,8 @@ def testLoadSectionsRejectsMissingMarkers(tmp_path: Path) -> None:
 
 
 def testAuthVersionMigrationHasReversibleColumnChange() -> None:
-    migration = (
-        Path(__file__).resolve().parents[1]
-        / "scripts"
-        / "migrations"
-        / "2026_08_17_auth_version.sql"
-    )
+    migration = Path(__file__).resolve().parents[1] / "scripts" / "migrations" / "2026_08_17_auth_version.sql"
     up, down = loadSections(migration)
 
-    assert up == [
-        "ALTER TABLE users ADD COLUMN auth_version BIGINT NOT NULL DEFAULT 0 AFTER status"
-    ]
+    assert up == ["ALTER TABLE users ADD COLUMN auth_version BIGINT NOT NULL DEFAULT 0 AFTER status"]
     assert down == ["ALTER TABLE users DROP COLUMN auth_version"]

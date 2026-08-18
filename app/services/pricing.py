@@ -3,6 +3,7 @@
 正式价格优先读取最近发布的数据库版本；测试或尚未迁移的环境使用内置初始目录。
 未知功能默认拒绝计费，禁止用一个静默兜底价误收费用。
 """
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
@@ -167,12 +168,8 @@ def costFromSnapshot(
         cost = int(snapshot.get("baseCost", 0) or 0)
         if int(snapshot.get("tokenPricingVersion", 1) or 1) >= 2:
             tokenUnitSize = max(1, int(snapshot.get("unitSize", 1_000_000) or 1_000_000))
-            weightedTokenCost = max(0, int(inputTokens)) * int(
-                snapshot.get("inputTokenCostPerUnit", 0) or 0
-            )
-            weightedTokenCost += max(0, int(outputTokens)) * int(
-                snapshot.get("outputTokenCostPerUnit", 0) or 0
-            )
+            weightedTokenCost = max(0, int(inputTokens)) * int(snapshot.get("inputTokenCostPerUnit", 0) or 0)
+            weightedTokenCost += max(0, int(outputTokens)) * int(snapshot.get("outputTokenCostPerUnit", 0) or 0)
             cost += _ceilUnits(weightedTokenCost, tokenUnitSize)
         else:
             # 旧账单仍严格按原快照的“输入/输出分别每千 Token 向上取整”结算。
@@ -221,12 +218,8 @@ class PricingService:
             fixedCost=int(record.fixedCost or 0),
             baseCost=int(record.baseCost or 0),
             perUnitCost=int(record.perUnitCost or 0),
-            inputTokenCostPerUnit=(
-                int(record.inputTokenCostPer1K or 0) if usesAffordableTokenPricing else 0
-            ),
-            outputTokenCostPerUnit=(
-                int(record.outputTokenCostPer1K or 0) if usesAffordableTokenPricing else 0
-            ),
+            inputTokenCostPerUnit=(int(record.inputTokenCostPer1K or 0) if usesAffordableTokenPricing else 0),
+            outputTokenCostPerUnit=(int(record.outputTokenCostPer1K or 0) if usesAffordableTokenPricing else 0),
             inputTokenCostPer1K=(0 if usesAffordableTokenPricing else int(record.inputTokenCostPer1K or 0)),
             outputTokenCostPer1K=(0 if usesAffordableTokenPricing else int(record.outputTokenCostPer1K or 0)),
             tokenPricingVersion=2 if usesAffordableTokenPricing else 1,
@@ -243,11 +236,15 @@ class PricingService:
         if db is not None:
             version = self._publishedVersion(db)
             if version is not None:
-                records = db.execute(
-                    select(PricingRuleRecord)
-                    .where(PricingRuleRecord.versionId == version.versionId)
-                    .order_by(PricingRuleRecord.ruleId.asc())
-                ).scalars().all()
+                records = (
+                    db.execute(
+                        select(PricingRuleRecord)
+                        .where(PricingRuleRecord.versionId == version.versionId)
+                        .order_by(PricingRuleRecord.ruleId.asc())
+                    )
+                    .scalars()
+                    .all()
+                )
                 return (
                     version.versionCode,
                     [self._recordToRule(record) for record in records],

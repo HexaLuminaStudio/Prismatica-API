@@ -3,6 +3,7 @@
 端点:
     GET /v1/admin/metrics/summary    看板聚合 KPI
 """
+
 from __future__ import annotations
 
 from flask import Blueprint

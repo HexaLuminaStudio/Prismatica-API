@@ -1,4 +1,5 @@
 """版本化定价模型。"""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -47,12 +48,8 @@ class PricingRuleRecord(Base):
     fixedCost: Mapped[int] = mapped_column("fixed_cost", BigInteger, nullable=False, default=0)
     baseCost: Mapped[int] = mapped_column("base_cost", BigInteger, nullable=False, default=0)
     perUnitCost: Mapped[int] = mapped_column("per_unit_cost", BigInteger, nullable=False, default=0)
-    inputTokenCostPer1K: Mapped[int] = mapped_column(
-        "input_token_cost_per_1k", BigInteger, nullable=False, default=0
-    )
-    outputTokenCostPer1K: Mapped[int] = mapped_column(
-        "output_token_cost_per_1k", BigInteger, nullable=False, default=0
-    )
+    inputTokenCostPer1K: Mapped[int] = mapped_column("input_token_cost_per_1k", BigInteger, nullable=False, default=0)
+    outputTokenCostPer1K: Mapped[int] = mapped_column("output_token_cost_per_1k", BigInteger, nullable=False, default=0)
     minCost: Mapped[int] = mapped_column("min_cost", BigInteger, nullable=False, default=0)
     maxCost: Mapped[int] = mapped_column("max_cost", BigInteger, nullable=False, default=1000000)
     enabled: Mapped[bool] = mapped_column(nullable=False, default=True)

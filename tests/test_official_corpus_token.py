@@ -68,9 +68,7 @@ def testGlobalOfficialTokenHashesPasswordBeforeUpstreamRequest(monkeypatch) -> N
 
     assert token == "global-issued-token"
     assert captured["json"]["UserID"] == "official-global-user"
-    assert captured["json"]["Password"] == hashlib.md5(
-        b"global-password"
-    ).hexdigest()
+    assert captured["json"]["Password"] == hashlib.md5(b"global-password").hexdigest()
 
 
 def testMissingOfficialCredentialsReturnsServiceUnavailable(monkeypatch) -> None:

@@ -4,6 +4,7 @@
     - /v1/account/me 的完整响应(用户 + 余额 + 订阅)
     - 设备管理 / 注销请求响应
 """
+
 from __future__ import annotations
 
 from datetime import datetime

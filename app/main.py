@@ -4,6 +4,7 @@
     python -m app.main            # 开发
     gunicorn -w 4 -b 0.0.0.0:8000 'app.main:app'   # 生产
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -166,9 +167,7 @@ def createApp() -> Flask:
         except Exception as e:
             logger.exception(f"[Startup] seed_admin 失败: {e}")
 
-    logger.info(
-        f"[Startup] {settings.appName} ready env={settings.env} db={settings.dbHost}"
-    )
+    logger.info(f"[Startup] {settings.appName} ready env={settings.env} db={settings.dbHost}")
     return app
 
 

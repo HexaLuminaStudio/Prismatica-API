@@ -4,6 +4,7 @@
     base64( JSON( payload + {"signature": "<hmac-hex>"} ) )
     payload 用 sort_keys + ensure_ascii=False + 紧凑分隔符规范化
 """
+
 from __future__ import annotations
 
 import base64

@@ -3,6 +3,7 @@
 兑换入口与邮箱密码登录共用 P0-A 的 BIGINT 用户、设备、余额和刷新令牌模型。
 支持签名载荷以及后台签发后展示给用户的明文 INV/TRY/RCH 码。
 """
+
 from __future__ import annotations
 
 import math
@@ -239,9 +240,7 @@ def _createLicense(
         else int(getattr(model, "grantedDays", 0) or 0)
     )
     grantedBalance = int(getattr(model, "grantedBalance", 0) or 0)
-    tier = _canonicalTier(
-        getattr(model, "userType", None) if kind == "activation" else str(getattr(model, "tier", ""))
-    )
+    tier = _canonicalTier(getattr(model, "userType", None) if kind == "activation" else str(getattr(model, "tier", "")))
     row = LicenseCode(
         codeHash=codeHash,
         codeKind=storageKind,
@@ -264,10 +263,7 @@ def _createLicense(
 
 def _firstRedemption(db: Session, codeId: int) -> CodeRedemption | None:
     return db.execute(
-        select(CodeRedemption)
-        .where(CodeRedemption.codeId == codeId)
-        .order_by(CodeRedemption.id)
-        .limit(1)
+        select(CodeRedemption).where(CodeRedemption.codeId == codeId).order_by(CodeRedemption.id).limit(1)
     ).scalar_one_or_none()
 
 
@@ -368,8 +364,7 @@ def redeemCode(
     publicDevice = _findPublicDevice(db, deviceId)
     firstRedemption = _firstRedemption(db, licenseRow.id) if licenseRow is not None else None
     exhausted = bool(
-        licenseRow is not None
-        and (licenseRow.status == "exhausted" or licenseRow.usedCount >= licenseRow.maxUses)
+        licenseRow is not None and (licenseRow.status == "exhausted" or licenseRow.usedCount >= licenseRow.maxUses)
     )
 
     if kind == "recharge":
@@ -386,9 +381,7 @@ def redeemCode(
         user = db.get(User, publicDevice.userId)
     else:
         requestedTier = (
-            getattr(model, "userType", None)
-            if kind == "activation"
-            else str(getattr(model, "tier", "free"))
+            getattr(model, "userType", None) if kind == "activation" else str(getattr(model, "tier", "free"))
         )
         user = _createRedeemUser(db, displayName, _canonicalTier(requestedTier))
 
@@ -437,9 +430,7 @@ def redeemCode(
                 subscription.expiresAt = expiresAt
                 subscription.nextGrantAt = expiresAt
             user.tier = _canonicalTier(
-                getattr(model, "userType", None)
-                if kind == "activation"
-                else str(getattr(model, "tier", "pro"))
+                getattr(model, "userType", None) if kind == "activation" else str(getattr(model, "tier", "pro"))
             )
 
         db.add(
@@ -458,10 +449,7 @@ def redeemCode(
 
     response = _buildResponse(db, mode=kind, user=user, device=device)
     db.commit()
-    logger.info(
-        f"[Auth] {kind} redeem user={user.id} device={deviceId[:8]}... "
-        f"granted={shouldGrant}"
-    )
+    logger.info(f"[Auth] {kind} redeem user={user.id} device={deviceId[:8]}... granted={shouldGrant}")
     return response
 
 

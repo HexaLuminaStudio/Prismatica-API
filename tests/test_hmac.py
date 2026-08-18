@@ -1,4 +1,5 @@
 """HMAC 工具测试(无需 DB)。"""
+
 from __future__ import annotations
 
 import base64
@@ -16,9 +17,7 @@ def _encode(model) -> str:
     """签发一份凭证(与客户端 signed_code.encodeSignedModel 同款)。"""
     payload = model.model_dump(mode="json")
     payload["signature"] = hmacUtil.signPayload(payload)
-    return base64.b64encode(
-        json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    ).decode("ascii")
+    return base64.b64encode(json.dumps(payload, ensure_ascii=False).encode("utf-8")).decode("ascii")
 
 
 def test_invite_roundtrip():

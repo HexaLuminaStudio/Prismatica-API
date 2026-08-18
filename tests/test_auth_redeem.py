@@ -6,6 +6,7 @@
     - 激活码兑换 → 建用户、expireAt = validityPeriod 当日 23:59:59、不发余额
     - 新用户 userId 为 BIGINT 主键
 """
+
 from __future__ import annotations
 
 import base64
@@ -92,8 +93,11 @@ def test_redeem_new_code_creates_bigint_user(db):
     """全新设备 + 全新凭证 → 新建 BIGINT 用户。"""
     code = _inviteCode()
     r = redeemCode(
-        db, code, "00000000-0000-0000-0000-000000000001",
-        deviceName="pc", platform="win",
+        db,
+        code,
+        "00000000-0000-0000-0000-000000000001",
+        deviceName="pc",
+        platform="win",
     )
     assert r.mode == "invite"
     assert r.user.userId.isdecimal()
@@ -110,9 +114,7 @@ def test_redeem_new_code_creates_bigint_user(db):
     ).scalar_one()
     assert seen is not None
     assert seen.status == "exhausted"
-    redemption = db.execute(
-        select(CodeRedemption).where(CodeRedemption.codeId == seen.id)
-    ).scalar_one()
+    redemption = db.execute(select(CodeRedemption).where(CodeRedemption.codeId == seen.id)).scalar_one()
     assert redemption.userId == int(r.user.userId)
 
 
@@ -149,14 +151,10 @@ def test_same_device_new_code_keeps_user_and_merges_balance(db):
     # 数据库侧余额同样为 200
     # 2026-08-07:IdentityUser 主键是 BIGINT id;UserAccount alias 共用同一表;
     # 按 userId(String) 查需要 select 表达式,而不是 db.get。
-    balance = db.execute(
-        select(UserBalance).where(UserBalance.userId == r1.user.userId)
-    ).scalar_one_or_none()
+    balance = db.execute(select(UserBalance).where(UserBalance.userId == r1.user.userId)).scalar_one_or_none()
     assert balance is not None
     assert balance.balance == 200
-    user = db.execute(
-        select(UserAccount).where(UserAccount.id == int(r1.user.userId))
-    ).scalar_one_or_none()
+    user = db.execute(select(UserAccount).where(UserAccount.id == int(r1.user.userId))).scalar_one_or_none()
     assert user is not None
 
 
@@ -170,9 +168,7 @@ def test_activation_code_sets_expire_at_from_validity(db):
     assert r.user.tier == "pro"  # 存量档位收敛到 canonical tier
     # expireAt 取码有效期当日 23:59:59
     validity = (datetime.utcnow() + timedelta(days=90)).strftime("%Y-%m-%d")
-    expected = datetime.strptime(validity, "%Y-%m-%d").replace(
-        hour=23, minute=59, second=59
-    )
+    expected = datetime.strptime(validity, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
     assert r.user.expireAt == expected
     assert r.balance.balance == 0  # 激活码不发余额
 

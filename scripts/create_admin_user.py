@@ -11,6 +11,7 @@
     DB_HOST=... DB_PORT=... DB_NAME=... DB_USER=... DB_PASSWORD=... \
         python -m scripts.create_admin_user
 """
+
 from __future__ import annotations
 
 import secrets
@@ -34,14 +35,10 @@ USERNAME = "admin"
 def main() -> int:
     with getDb() as db:
         existing = (
-            db.query(AdminUser)
-            .filter(AdminUser.username == USERNAME, AdminUser.deletedAt.is_(None))
-            .one_or_none()
+            db.query(AdminUser).filter(AdminUser.username == USERNAME, AdminUser.deletedAt.is_(None)).one_or_none()
         )
         if existing is not None:
-            logger.warning(
-                f"[create_admin_user] username={USERNAME} 已存在且未软删,跳过"
-            )
+            logger.warning(f"[create_admin_user] username={USERNAME} 已存在且未软删,跳过")
             print("RESULT:SKIPPED")
             return 2
 
@@ -56,15 +53,8 @@ def main() -> int:
         db.add(admin)
         db.commit()
         db.refresh(admin)
-        logger.info(
-            f"[create_admin_user] 已创建 admin 账号 user_id={admin.userId} role=admin"
-        )
-        print(
-            "RESULT:CREATED\n"
-            f"USERNAME: {USERNAME}\n"
-            f"PASSWORD: {PLAIN_PASSWORD}\n"
-            f"USER_ID: {admin.userId}"
-        )
+        logger.info(f"[create_admin_user] 已创建 admin 账号 user_id={admin.userId} role=admin")
+        print(f"RESULT:CREATED\nUSERNAME: {USERNAME}\nPASSWORD: {PLAIN_PASSWORD}\nUSER_ID: {admin.userId}")
     return 0
 
 

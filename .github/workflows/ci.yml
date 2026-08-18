@@ -38,8 +38,11 @@ jobs:
       - name: 同步依赖 (uv sync)
         run: uv sync --frozen --group dev
 
-      - name: 运行 ruff
+      - name: 运行 ruff (lint)
         run: uv run ruff check .
+
+      - name: 运行 ruff (format)
+        run: uv run ruff format --check .
 
       - name: 运行 pytest
         run: uv run pytest --cov=app --cov-report=term-missing

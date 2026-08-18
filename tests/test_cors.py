@@ -1,4 +1,5 @@
 """CORS 中间件验证。"""
+
 from __future__ import annotations
 
 import os
@@ -26,8 +27,7 @@ def client(monkeypatch):
     from app.main import createApp
 
     settings = getSettings()
-    monkeypatch.setattr(settings, "corsAllowedOrigins",
-                        "https://app.example.com,https://admin.example.com")
+    monkeypatch.setattr(settings, "corsAllowedOrigins", "https://app.example.com,https://admin.example.com")
     monkeypatch.setattr(settings, "corsAllowCredentials", False)
     monkeypatch.setattr(settings, "corsMaxAgeSec", 600)
 

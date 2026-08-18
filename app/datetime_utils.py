@@ -3,6 +3,7 @@
 数据库 ``DATETIME(3)`` 字段统一保存 naive UTC；API 输出统一带 ``Z``，
 避免浏览器把无时区的 UTC 字符串误当成本地时间。
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime

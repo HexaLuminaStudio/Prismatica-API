@@ -1,4 +1,5 @@
 """执行低成本 AI Token 定价版本迁移。"""
+
 from __future__ import annotations
 
 from pathlib import Path

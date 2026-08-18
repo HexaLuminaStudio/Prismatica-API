@@ -3,6 +3,7 @@
 每个函数返回"行字典列表",由路由层序列化为 CSV。
 所有时间字段输出 ISO 字符串;None 输出空串,便于 Excel 直接打开。
 """
+
 from __future__ import annotations
 
 import json
@@ -102,15 +103,11 @@ def exportCodes(
         return [
             {
                 "codeHash": r.codeHash,
-                "codeKind": {"INV": "invite", "TRY": "trial", "RCH": "recharge"}.get(
-                    r.codeKind, r.codeKind
-                ),
+                "codeKind": {"INV": "invite", "TRY": "trial", "RCH": "recharge"}.get(r.codeKind, r.codeKind),
                 "status": r.status,
                 "grantedBalance": r.monthlyQuota if r.monthlyQuota is not None else "",
                 "grantedDays": (
-                    r.trialDays
-                    if r.codeKind == "TRY"
-                    else (r.periodMonths * 30 if r.periodMonths is not None else "")
+                    r.trialDays if r.codeKind == "TRY" else (r.periodMonths * 30 if r.periodMonths is not None else "")
                 ),
                 "tier": r.planCode or ("pro" if r.codeKind == "TRY" else ""),
                 "amount": r.amount if r.amount is not None else "",

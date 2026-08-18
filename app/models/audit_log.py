@@ -3,6 +3,7 @@
 2026-08-07 改造:补 target_type / target_id / request_id 字段(对齐 schema.sql),
 便于按资源类型 / 请求链路聚合审计。
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -22,22 +23,16 @@ class AuditLog(Base):
 
     __tablename__ = "audit_logs"
 
-    auditId: Mapped[int] = mapped_column(
-        "audit_id", _AUDIT_ID, primary_key=True, autoincrement=True
-    )
+    auditId: Mapped[int] = mapped_column("audit_id", _AUDIT_ID, primary_key=True, autoincrement=True)
     actor: Mapped[str] = mapped_column(String(64), nullable=False)
     action: Mapped[str] = mapped_column(String(64), nullable=False)
     targetType: Mapped[str | None] = mapped_column("target_type", String(32), nullable=True)
     targetId: Mapped[str | None] = mapped_column("target_id", String(64), nullable=True)
-    targetUser: Mapped[str | None] = mapped_column(
-        "target_user", String(64), nullable=True
-    )
+    targetUser: Mapped[str | None] = mapped_column("target_user", String(64), nullable=True)
     requestId: Mapped[str | None] = mapped_column("request_id", String(64), nullable=True)
     details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    createdAt: Mapped[datetime] = mapped_column(
-        "created_at", DateTime, server_default=func.current_timestamp()
-    )
+    createdAt: Mapped[datetime] = mapped_column("created_at", DateTime, server_default=func.current_timestamp())
 
     __table_args__ = (
         Index("idx_audit_actor_time", "actor", "created_at"),

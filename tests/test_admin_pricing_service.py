@@ -1,4 +1,5 @@
 """管理后台价格版本发布服务。"""
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -65,9 +66,7 @@ def testPublishPricingVersion_ArchivesOldAndActivatesNew(pricingDb) -> None:
 
     overview = service.getPricingOverview()
     assert overview["activeVersion"] == second["versionCode"]
-    assert next(rule for rule in overview["rules"] if rule["featureCode"] == "analysis_export")[
-        "fixedCost"
-    ] == 8
+    assert next(rule for rule in overview["rules"] if rule["featureCode"] == "analysis_export")["fixedCost"] == 8
     with pricingDb() as db:
         versions = db.execute(select(PricingVersion).order_by(PricingVersion.versionId)).scalars().all()
         assert [version.status for version in versions] == ["retired", "published"]
@@ -84,9 +83,7 @@ def testPublishedPricingCatalog_ExposesCurrentStatus(pricingDb) -> None:
     assert catalog["state"] == "active"
     assert catalog["source"] == "published"
     assert catalog["effectiveAt"]
-    assert next(
-        rule for rule in catalog["rules"] if rule["featureCode"] == "analysis_export"
-    )["fixedCost"] == 9
+    assert next(rule for rule in catalog["rules"] if rule["featureCode"] == "analysis_export")["fixedCost"] == 9
     aiRule = next(rule for rule in catalog["rules"] if rule["featureCode"] == "ai_chat")
     assert aiRule["unitSize"] == 1_000_000
     assert aiRule["inputTokenCostPerUnit"] == 2

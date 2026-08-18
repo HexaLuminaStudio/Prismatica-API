@@ -43,19 +43,14 @@ ALTERS = [
         "COMMENT '密码重置时间戳;cookie 颁发时间早于此值即失效'"
     ),
     # 索引(IF NOT EXISTS 在 MySQL 8.0.29+ 才支持;此处用错误码 1061 兼容老版本)
-    (
-        "ALTER TABLE admin_users "
-        "ADD INDEX idx_admin_users_deleted_at (deleted_at)"
-    ),
+    ("ALTER TABLE admin_users ADD INDEX idx_admin_users_deleted_at (deleted_at)"),
 ]
 
 
 def _isDuplicateColumn(err: Exception) -> bool:
     """MySQL 1060 = Duplicate column name;1061 = Duplicate key name。视为幂等成功。"""
     msg = str(err)
-    return ("1060" in msg and "Duplicate column" in msg) or (
-        "1061" in msg and "Duplicate key" in msg
-    )
+    return ("1060" in msg and "Duplicate column" in msg) or ("1061" in msg and "Duplicate key" in msg)
 
 
 def main() -> int:
@@ -70,9 +65,7 @@ def main() -> int:
             except Exception as e:  # noqa: BLE001
                 if _isDuplicateColumn(e):
                     errBrief = str(e)[:80]
-                    logger.info(
-                        f"[migrate] SKIP(已存在): {sql[:60]}... ({errBrief})"
-                    )
+                    logger.info(f"[migrate] SKIP(已存在): {sql[:60]}... ({errBrief})")
                     continue
                 logger.exception(f"[migrate] FAILED: {sql}")
                 failed += 1

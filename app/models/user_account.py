@@ -9,6 +9,7 @@ IdentityUser / IdentityDevice / IdentityBalance,以避免:
 
 旧代码 auth_service.py 在 M6 兑换码升级后会逐步下线,届时直接删除本模块。
 """
+
 from __future__ import annotations
 
 from app.models.identity import IdentityBalance, IdentityDevice

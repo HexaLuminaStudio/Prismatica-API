@@ -9,6 +9,7 @@
 
 所有响应 data 子结构在此集中定义;路由层直接 .model_dump(mode="json")。
 """
+
 from __future__ import annotations
 
 from datetime import datetime

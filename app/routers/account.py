@@ -1,4 +1,5 @@
 """/v1/account/* 路由:me / patch / bills / devices / delete / subscriptions。"""
+
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -165,9 +166,7 @@ def listSubscriptions():
             )
             for r in rows
         ]
-        return successEnvelope(
-            SubscriptionListResponse(items=items, nextCursor=nextCursor).model_dump(mode="json")
-        )
+        return successEnvelope(SubscriptionListResponse(items=items, nextCursor=nextCursor).model_dump(mode="json"))
 
 
 # ---------------------------------------------------------------------------
@@ -196,9 +195,7 @@ def deleteDevice(deviceRecordId: int):
     currentDeviceId = g.deviceId
     with _sessionCtx() as db:
         revokedCount = accountRevokeDevice(db, g.userId, deviceRecordId, currentDeviceId)
-    return successEnvelope(
-        {"deviceId": deviceRecordId, "revokedRefreshTokens": revokedCount, "status": "revoked"}
-    )
+    return successEnvelope({"deviceId": deviceRecordId, "revokedRefreshTokens": revokedCount, "status": "revoked"})
 
 
 # ---------------------------------------------------------------------------
@@ -211,9 +208,7 @@ def deleteDevice(deviceRecordId: int):
 @auditAction("user.account_deleted")
 def postDeleteAccount():
     try:
-        payload = DeleteAccountRequest.model_validate(
-            request.get_json(force=True, silent=False)
-        )
+        payload = DeleteAccountRequest.model_validate(request.get_json(force=True, silent=False))
     except ValidationError as error:
         raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": error.errors()}) from error
     if not payload.confirm:
@@ -221,9 +216,7 @@ def postDeleteAccount():
 
     currentDeviceId = g.deviceId
     with _sessionCtx() as db:
-        revokedCount, scheduledAt = accountDeleteAccount(
-            db, g.userId, payload.password, currentDeviceId
-        )
+        revokedCount, scheduledAt = accountDeleteAccount(db, g.userId, payload.password, currentDeviceId)
     return successEnvelope(
         DeleteAccountResponse(
             userId=g.userId,

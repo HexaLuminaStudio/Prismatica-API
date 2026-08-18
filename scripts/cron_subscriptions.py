@@ -12,6 +12,7 @@
     python -m scripts.cron_subscriptions               # 立即跑一次
     python -m scripts.cron_subscriptions --dry-run     # 只统计不写
 """
+
 from __future__ import annotations
 
 import argparse
@@ -49,8 +50,8 @@ def runOnce(*, dryRun: bool = False) -> dict:
     getSettings()
     stats = {
         "expiring": 0,  # 派发了新一期
-        "expired": 0,    # 彻底过期
-        "granted": 0,    # 总派发额
+        "expired": 0,  # 彻底过期
+        "granted": 0,  # 总派发额
         "dryRun": dryRun,
         "startedAt": _now().isoformat(),
     }
@@ -69,10 +70,7 @@ def runOnce(*, dryRun: bool = False) -> dict:
             try:
                 expireSubscription(db, sub)
                 stats["expired"] += 1
-                logger.info(
-                    f"[cron.subs] expired sub={sub.id} user={sub.userId} "
-                    f"plan={sub.planCode}"
-                )
+                logger.info(f"[cron.subs] expired sub={sub.id} user={sub.userId} plan={sub.planCode}")
             except Exception as e:
                 logger.exception(f"[cron.subs] expire failed sub={sub.id}: {e}")
                 db.rollback()

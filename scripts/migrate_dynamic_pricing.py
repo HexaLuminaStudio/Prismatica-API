@@ -1,4 +1,5 @@
 """执行 2026-08-10 版本化定价迁移。"""
+
 from __future__ import annotations
 
 from pathlib import Path

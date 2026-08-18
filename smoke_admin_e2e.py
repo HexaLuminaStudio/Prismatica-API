@@ -15,6 +15,7 @@
     [11] revoke-sessions
     [12] codes: issue 3 个 invite
 """
+
 from __future__ import annotations
 
 import os
@@ -99,9 +100,7 @@ def main() -> int:
     print(f"[3] me OK username={me2['username']}")
 
     # 4) 错误密码 → 401
-    r = client.post(
-        "/v1/admin/auth/login", json={"username": "root", "password": "wrong"}
-    )
+    r = client.post("/v1/admin/auth/login", json={"username": "root", "password": "wrong"})
     assert r.status_code == 401
     _errEnvelope(r.get_json(), "ADMIN_INVALID_CREDENTIALS")
     print("[4] wrong password → 401 ADMIN_INVALID_CREDENTIALS OK")

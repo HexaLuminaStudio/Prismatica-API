@@ -120,9 +120,7 @@ def downloadResource(resourceKey: str):
     contentLength = upstreamResponse.headers.get("Content-Length")
     if contentLength and contentLength.isdecimal():
         response.headers["Content-Length"] = contentLength
-    response.headers["Content-Disposition"] = (
-        f'attachment; filename="{resource.fileName}"'
-    )
+    response.headers["Content-Disposition"] = f'attachment; filename="{resource.fileName}"'
     response.headers["Cache-Control"] = "private, no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
     return response

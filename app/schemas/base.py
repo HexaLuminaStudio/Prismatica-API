@@ -1,4 +1,5 @@
 """Pydantic 响应模型公共基类。"""
+
 from __future__ import annotations
 
 from datetime import datetime

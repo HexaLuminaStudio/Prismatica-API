@@ -1,4 +1,5 @@
 """管理后台版本化定价服务。"""
+
 from __future__ import annotations
 
 import uuid
@@ -37,19 +38,13 @@ def _serializeRuleData(rule: dict[str, Any]) -> dict[str, Any]:
 
 def _serializeRule(rule: PricingRuleRecord) -> dict[str, Any]:
     ruleMeta = dict(rule.ruleMeta or {})
-    usesAffordableTokenPricing = (
-        rule.billingMode == "token" and int(ruleMeta.get("tokenPricingVersion", 0) or 0) >= 2
-    )
+    usesAffordableTokenPricing = rule.billingMode == "token" and int(ruleMeta.get("tokenPricingVersion", 0) or 0) >= 2
     return {
         "featureCode": rule.featureCode,
         "displayName": rule.displayName,
         "billingMode": rule.billingMode,
         "unitName": rule.unitName,
-        "unitSize": (
-            int(rule.unitSize or 1)
-            if usesAffordableTokenPricing or rule.billingMode != "token"
-            else 1_000
-        ),
+        "unitSize": (int(rule.unitSize or 1) if usesAffordableTokenPricing or rule.billingMode != "token" else 1_000),
         "fixedCost": int(rule.fixedCost or 0),
         "baseCost": int(rule.baseCost or 0),
         "perUnitCost": int(rule.perUnitCost or 0),
@@ -109,9 +104,7 @@ def _validateRule(raw: dict[str, Any]) -> dict[str, Any]:
     if billingMode == "fixed":
         numbers["minCost"] = numbers["fixedCost"]
         numbers["maxCost"] = numbers["fixedCost"]
-    elif billingMode == "token" and not (
-        numbers["inputTokenCostPerUnit"] or numbers["outputTokenCostPerUnit"]
-    ):
+    elif billingMode == "token" and not (numbers["inputTokenCostPerUnit"] or numbers["outputTokenCostPerUnit"]):
         raise ApiError("PRICING_RULE_INVALID", f"{featureCode} 至少要配置一种 Token 单价")
 
     return {
@@ -135,20 +128,24 @@ def _validateRule(raw: dict[str, Any]) -> dict[str, Any]:
 
 def getPricingOverview() -> dict[str, Any]:
     with getDb() as db:
-        versions = db.execute(
-            select(PricingVersion).order_by(PricingVersion.versionId.desc()).limit(20)
-        ).scalars().all()
+        versions = (
+            db.execute(select(PricingVersion).order_by(PricingVersion.versionId.desc()).limit(20)).scalars().all()
+        )
         active = next((item for item in versions if item.status == "published"), None)
         if active is None:
             catalog = getPricingService().publicCatalog(db)
             rules = list(catalog["rules"])
             activeVersion = catalog["version"]
         else:
-            records = db.execute(
-                select(PricingRuleRecord)
-                .where(PricingRuleRecord.versionId == active.versionId)
-                .order_by(PricingRuleRecord.ruleId.asc())
-            ).scalars().all()
+            records = (
+                db.execute(
+                    select(PricingRuleRecord)
+                    .where(PricingRuleRecord.versionId == active.versionId)
+                    .order_by(PricingRuleRecord.ruleId.asc())
+                )
+                .scalars()
+                .all()
+            )
             rules = [_serializeRule(record) for record in records]
             activeVersion = active.versionCode
         return {
@@ -209,15 +206,17 @@ def publishPricingVersion(versionCode: str, actor: str) -> dict[str, Any]:
         if target.status != "draft":
             raise ApiError("CONFLICT", "只有草稿价格版本可以发布")
         ruleCount = len(
-            db.execute(
-                select(PricingRuleRecord.ruleId).where(PricingRuleRecord.versionId == target.versionId)
-            ).scalars().all()
+            db.execute(select(PricingRuleRecord.ruleId).where(PricingRuleRecord.versionId == target.versionId))
+            .scalars()
+            .all()
         )
         if ruleCount == 0:
             raise ApiError("PRICING_RULE_INVALID", "不能发布空价格目录")
-        published = db.execute(
-            select(PricingVersion).where(PricingVersion.status == "published").with_for_update()
-        ).scalars().all()
+        published = (
+            db.execute(select(PricingVersion).where(PricingVersion.status == "published").with_for_update())
+            .scalars()
+            .all()
+        )
         for version in published:
             version.status = "retired"
         target.status = "published"

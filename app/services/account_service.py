@@ -6,6 +6,7 @@
 
 服务层只做编排,事务边界由调用方(router)用 getDb() 上下文管理。
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -60,18 +61,16 @@ def _toSubscriptionOut(sub: Subscription | None) -> SubscriptionOut | None:
 def _selectActiveSubscription(db: Session, userId: int) -> Subscription | None:
     """返回当前生效订阅(active 状态,expiresAt 还未到)。"""
     now = _now()
-    return (
-        db.execute(
-            select(Subscription)
-            .where(
-                Subscription.userId == userId,
-                Subscription.status == "active",
-                Subscription.expiresAt > now,
-            )
-            .order_by(Subscription.currentPeriodEnd.desc())
-            .limit(1)
-        ).scalar_one_or_none()
-    )
+    return db.execute(
+        select(Subscription)
+        .where(
+            Subscription.userId == userId,
+            Subscription.status == "active",
+            Subscription.expiresAt > now,
+        )
+        .order_by(Subscription.currentPeriodEnd.desc())
+        .limit(1)
+    ).scalar_one_or_none()
 
 
 # ---------------------------------------------------------------------------
@@ -111,9 +110,7 @@ def getMe(db: Session, userId: int) -> MeOut:
 
 
 def patchMe(db: Session, userId: int, displayName: str) -> MePatchResponse:
-    user = db.execute(
-        select(IdentityUser).where(IdentityUser.id == userId).with_for_update()
-    ).scalar_one_or_none()
+    user = db.execute(select(IdentityUser).where(IdentityUser.id == userId).with_for_update()).scalar_one_or_none()
     if user is None or user.deletedAt is not None:
         raise ApiError("NOT_FOUND", "用户不存在", httpStatus=404)
     if user.status != "active":
@@ -139,9 +136,7 @@ def patchMe(db: Session, userId: int, displayName: str) -> MePatchResponse:
 # ---------------------------------------------------------------------------
 
 
-def _toDeviceOuts(
-    devices: Iterable[IdentityDevice], currentDeviceId: str | None
-) -> list[DeviceOut]:
+def _toDeviceOuts(devices: Iterable[IdentityDevice], currentDeviceId: str | None) -> list[DeviceOut]:
     out: list[DeviceOut] = []
     for d in devices:
         out.append(
@@ -160,9 +155,7 @@ def _toDeviceOuts(
     return out
 
 
-def listDevices(
-    db: Session, userId: int, currentDevicePublicId: str | None = None
-) -> tuple[list[DeviceOut], int, int]:
+def listDevices(db: Session, userId: int, currentDevicePublicId: str | None = None) -> tuple[list[DeviceOut], int, int]:
     devices = (
         db.execute(
             select(IdentityDevice)
@@ -179,9 +172,7 @@ def listDevices(
     return _toDeviceOuts(devices, currentDevicePublicId), MAX_ACTIVE_DEVICES, activeCount
 
 
-def revokeDevice(
-    db: Session, userId: int, deviceRecordId: int, currentDevicePublicId: str | None
-) -> int:
+def revokeDevice(db: Session, userId: int, deviceRecordId: int, currentDevicePublicId: str | None) -> int:
     """撤销指定设备的 refresh_token(标 revoked + revoke_jti)。返回撤销条数。
 
     不允许撤销当前请求所用的设备(防自伤)。
@@ -250,9 +241,7 @@ def deleteAccount(
     返回:
         (revokedCount, scheduledHardDeleteAt)
     """
-    user = db.execute(
-        select(IdentityUser).where(IdentityUser.id == userId).with_for_update()
-    ).scalar_one_or_none()
+    user = db.execute(select(IdentityUser).where(IdentityUser.id == userId).with_for_update()).scalar_one_or_none()
     if user is None:
         raise ApiError("NOT_FOUND", "用户不存在", httpStatus=404)
     if user.deletedAt is not None or user.status == "deleted":

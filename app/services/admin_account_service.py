@@ -207,11 +207,7 @@ def createAdmin(
 
     with getDb() as db:
         # username 唯一(含软删)
-        dup = (
-            db.query(AdminUser)
-            .filter(AdminUser.username == username)
-            .one_or_none()
-        )
+        dup = db.query(AdminUser).filter(AdminUser.username == username).one_or_none()
         if dup is not None:
             raise ApiError("USERNAME_TAKEN", "username 已被使用(含已软删)", httpStatus=409)
 
@@ -242,8 +238,7 @@ def createAdmin(
     )
     if role == "owner":
         logger.warning(
-            f"[AdminAccount] owner 角色创建新 admin,actor={actor} "
-            f"newUserId={result['userId']} username={username}"
+            f"[AdminAccount] owner 角色创建新 admin,actor={actor} newUserId={result['userId']} username={username}"
         )
     return result
 

@@ -1,4 +1,5 @@
 """动态定价服务的核心业务规则。"""
+
 from __future__ import annotations
 
 import pytest

@@ -4,6 +4,7 @@
     GET /v1/admin/audit            审计日志列表
     GET /v1/admin/audit/summary    按 action group by + count
 """
+
 from __future__ import annotations
 
 from flask import Blueprint, request

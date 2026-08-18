@@ -1,4 +1,5 @@
 """平台 AI 请求与响应模型。"""
+
 from __future__ import annotations
 
 from typing import Literal

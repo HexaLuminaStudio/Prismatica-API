@@ -7,6 +7,7 @@
     POST /v1/admin/auth/change-password    修改自身密码
     GET  /v1/admin/health                  健康检查(无需鉴权)
 """
+
 from __future__ import annotations
 
 from flask import Blueprint, g, make_response, request
@@ -106,9 +107,7 @@ def getMe():
 def postChangePassword():
     """修改自身密码(强制要求 ≥ 8 位)。"""
     try:
-        payload = AdminChangePasswordRequest.model_validate(
-            request.get_json(force=True, silent=False)
-        )
+        payload = AdminChangePasswordRequest.model_validate(request.get_json(force=True, silent=False))
     except ValidationError as e:
         raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": e.errors()}) from e
 

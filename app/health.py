@@ -1,4 +1,5 @@
 """后端健康检查响应构造。"""
+
 from __future__ import annotations
 
 from app.config import getSettings

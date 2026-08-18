@@ -10,6 +10,7 @@
     - X-Admin-Token 直通(curl/脚本兼容)
     - 新统一 envelope:2xx 顶层有 code=OK,4xx 顶层有 code/message
 """
+
 from __future__ import annotations
 
 import pytest

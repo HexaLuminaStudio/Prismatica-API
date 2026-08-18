@@ -7,6 +7,7 @@
     - settle 校验 0 <= realCost <= estimated
     - 余额不足 → INSUFFICIENT_BALANCE
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -47,6 +48,7 @@ def db() -> Iterator[Session]:
 
 def _makeUserWithBalance(db: Session, balance: int) -> IdentityUser:
     import uuid as _uuid
+
     user = IdentityUser(
         email=f"u{_uuid.uuid4().hex[:8]}@example.com",
         passwordHash="x",
@@ -58,6 +60,7 @@ def _makeUserWithBalance(db: Session, balance: int) -> IdentityUser:
     db.flush()
     # 直接写 IdentityBalance 行
     from app.models.identity import IdentityBalance
+
     bal = IdentityBalance(userId=int(user.id), balance=balance, reserved=0)
     db.add(bal)
     db.flush()
@@ -97,9 +100,7 @@ def testPreauth_DeductsBalanceAndReservesAndWritesLedger(db: Session) -> None:
     assert result.balanceAfter == 500 - result.estimatedCost
 
     # ledger 应该有 1 条 reserve
-    ledgers = db.execute(
-        select(BalanceLedger).where(BalanceLedger.userId == user.id)
-    ).scalars().all()
+    ledgers = db.execute(select(BalanceLedger).where(BalanceLedger.userId == user.id)).scalars().all()
     assert len(ledgers) == 1
     assert ledgers[0].entryType == "reserve"
     assert ledgers[0].refType == "bill"
@@ -149,14 +150,10 @@ def testReleaseExpiredPreauths_DoesNotReleaseUnexpiredReservation(db: Session) -
 
 def testPreauth_IdempotencyKeyReturnsSameBill(db: Session) -> None:
     user = _makeUserWithBalance(db, 500)
-    r1 = preauth(
-        db, user.id, "analysis_export", 1000, taskId="t1", idempotencyKey="key-001"
-    )
+    r1 = preauth(db, user.id, "analysis_export", 1000, taskId="t1", idempotencyKey="key-001")
     db.commit()
 
-    r2 = preauth(
-        db, user.id, "analysis_export", 1000, taskId="t1", idempotencyKey="key-001"
-    )
+    r2 = preauth(db, user.id, "analysis_export", 1000, taskId="t1", idempotencyKey="key-001")
     # r2 应该复用 r1 的 bill_id
     assert r2.billId == r1.billId
 
@@ -168,14 +165,10 @@ def testPreauth_IdempotencyKeyReturnsSameBill(db: Session) -> None:
 
 def testPreauth_IdempotencyKeyBodyMismatchRaises409(db: Session) -> None:
     user = _makeUserWithBalance(db, 500)
-    preauth(
-        db, user.id, "analysis_export", 1000, taskId="t1", idempotencyKey="key-002"
-    )
+    preauth(db, user.id, "analysis_export", 1000, taskId="t1", idempotencyKey="key-002")
     db.commit()
     with pytest.raises(ApiError) as exc:
-        preauth(
-            db, user.id, "analysis_export", 1000, taskId="t2", idempotencyKey="key-002"
-        )
+        preauth(db, user.id, "analysis_export", 1000, taskId="t2", idempotencyKey="key-002")
     # 2026-08-07 P0-A M9 错误码语义化:统一为 IDEMPOTENCY_CONFLICT(原 CONFLICT)
     assert exc.value.code == "IDEMPOTENCY_CONFLICT"
 
@@ -199,9 +192,7 @@ def testSettle_FullSettleConsumesAndReleasesReserve(db: Session) -> None:
     assert bill.actualCost == estimated
 
     # ledger 应该:1 reserve + 1 consume
-    ledgers = db.execute(
-        select(BalanceLedger).where(BalanceLedger.userId == user.id)
-    ).scalars().all()
+    ledgers = db.execute(select(BalanceLedger).where(BalanceLedger.userId == user.id)).scalars().all()
     assert {ledger.entryType for ledger in ledgers} == {"reserve", "consume"}
 
 
@@ -215,9 +206,7 @@ def testSettle_PartialSettleRefundsDifference(db: Session) -> None:
     db.commit()
     assert result.refunded == estimated - realCost
     # ledger 应该有 reserve + unreserve + (consume if realCost > 0)
-    ledgers = db.execute(
-        select(BalanceLedger).where(BalanceLedger.userId == user.id)
-    ).scalars().all()
+    ledgers = db.execute(select(BalanceLedger).where(BalanceLedger.userId == user.id)).scalars().all()
     assert {ledger.entryType for ledger in ledgers} == {"reserve", "unreserve", "consume"}
 
 
@@ -346,16 +335,12 @@ def testRefund_ReturnsAllBalanceAndReleasesReserve(db: Session) -> None:
     # 用户余额应该恢复到 500
     from app.models.identity import IdentityBalance
 
-    bal = db.execute(
-        select(IdentityBalance).where(IdentityBalance.userId == str(user.id))
-    ).scalar_one()
+    bal = db.execute(select(IdentityBalance).where(IdentityBalance.userId == str(user.id))).scalar_one()
     assert bal.balance == 500
     assert bal.reserved == 0
 
     # ledger:reserve + refund
-    ledgers = db.execute(
-        select(BalanceLedger).where(BalanceLedger.userId == user.id)
-    ).scalars().all()
+    ledgers = db.execute(select(BalanceLedger).where(BalanceLedger.userId == user.id)).scalars().all()
     assert {ledger.entryType for ledger in ledgers} == {"reserve", "refund"}
 
 

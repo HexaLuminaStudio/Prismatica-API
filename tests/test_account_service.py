@@ -8,6 +8,7 @@
     - deleteAccount: 软删 + 撤销 refresh + 重复注销抛 CONFLICT
     - _selectActiveSubscription / _toSubscriptionOut 内部辅助
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterator

@@ -7,6 +7,7 @@
     - 不会自动 renew(本轮没有支付通道);cron 看到 auto_renew=true 的过期订阅
       转 past_due,cron_renew 流程留 P1
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -21,9 +22,9 @@ from app.models.identity import IdentityBalance, User
 from app.models.subscription import Subscription
 
 # P0-A 默认 plan 目录(临时,后续可由 admin 后台配置)
-PLAN_PRO_MONTHLY = "pro_monthly"          # 月度 Pro:30 天周期,monthly_quota=200
-PLAN_TEAM_MONTHLY = "team_monthly"        # 团队版
-PLAN_TRIAL = "trial"                       # 试用:7 天,monthly_quota=20
+PLAN_PRO_MONTHLY = "pro_monthly"  # 月度 Pro:30 天周期,monthly_quota=200
+PLAN_TEAM_MONTHLY = "team_monthly"  # 团队版
+PLAN_TRIAL = "trial"  # 试用:7 天,monthly_quota=20
 
 PLAN_DEFAULT_PERIOD_DAYS = 30
 PLAN_DEFAULT_TRIAL_DAYS = 7
@@ -64,9 +65,7 @@ class GrantResult:
 
 def listAllPlans() -> list[dict]:
     """公开 API:列出所有可用 plan。"""
-    return [
-        {"planCode": code, **meta} for code, meta in PLAN_TABLE.items()
-    ]
+    return [{"planCode": code, **meta} for code, meta in PLAN_TABLE.items()]
 
 
 def resolvePlan(planCode: str) -> dict:
@@ -106,9 +105,7 @@ def createSubscription(
     tier = plan.get("tier", "free")
     periodEnd = now + timedelta(days=periodDays)
 
-    user = db.execute(
-        select(User).where(User.id == userId).with_for_update()
-    ).scalar_one_or_none()
+    user = db.execute(select(User).where(User.id == userId).with_for_update()).scalar_one_or_none()
     if user is None or user.deletedAt is not None:
         raise ApiError("NOT_FOUND", "用户不存在", httpStatus=404)
     if user.status != "active":
@@ -224,18 +221,16 @@ def _grantQuotaInternal(
 
 def getActiveSubscription(db: Session, userId: int) -> Subscription | None:
     now = _now()
-    return (
-        db.execute(
-            select(Subscription)
-            .where(
-                Subscription.userId == userId,
-                Subscription.status == "active",
-                Subscription.expiresAt > now,
-            )
-            .order_by(Subscription.currentPeriodEnd.desc())
-            .limit(1)
-        ).scalar_one_or_none()
-    )
+    return db.execute(
+        select(Subscription)
+        .where(
+            Subscription.userId == userId,
+            Subscription.status == "active",
+            Subscription.expiresAt > now,
+        )
+        .order_by(Subscription.currentPeriodEnd.desc())
+        .limit(1)
+    ).scalar_one_or_none()
 
 
 def listSubscriptions(
@@ -258,9 +253,7 @@ def listSubscriptions(
     return rows, nextCursor
 
 
-def getDueForRenewal(
-    db: Session, *, before: datetime | None = None, limit: int = 100
-) -> list[Subscription]:
+def getDueForRenewal(db: Session, *, before: datetime | None = None, limit: int = 100) -> list[Subscription]:
     """cron 用:获取需要续期/派发的活跃订阅(current_period_end <= before)。"""
     cutoff = before or _now()
     return list(
@@ -277,9 +270,7 @@ def getDueForRenewal(
     )
 
 
-def getExpiredCandidates(
-    db: Session, *, before: datetime | None = None, limit: int = 100
-) -> list[Subscription]:
+def getExpiredCandidates(db: Session, *, before: datetime | None = None, limit: int = 100) -> list[Subscription]:
     """cron 用:获取应该转为 expired 的订阅(expires_at <= before 且仍 active)。"""
     cutoff = before or _now()
     return list(

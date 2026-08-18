@@ -1,4 +1,5 @@
 """周期运行预授权释放和订阅维护任务。"""
+
 from __future__ import annotations
 
 import os

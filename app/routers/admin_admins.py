@@ -9,6 +9,7 @@
 
 所有端点必须 @requireAdminCookie + @requireOwner。
 """
+
 from __future__ import annotations
 
 from flask import Blueprint, g, request
@@ -57,9 +58,7 @@ def listAdminsRoute():
     status = (request.args.get("status") or "").strip() or None
     role = (request.args.get("role") or "").strip() or None
 
-    items, nextCursor = listAdmins(
-        limit=limit, cursor=cursor, q=q, status=status, role=role
-    )
+    items, nextCursor = listAdmins(limit=limit, cursor=cursor, q=q, status=status, role=role)
     data = AdminAccountListResponse(
         items=items,
         nextCursor=nextCursor,
@@ -73,9 +72,7 @@ def listAdminsRoute():
 def postCreateAdmin():
     """创建账号。"""
     try:
-        payload = AdminCreateAdminRequest.model_validate(
-            request.get_json(force=True, silent=False)
-        )
+        payload = AdminCreateAdminRequest.model_validate(request.get_json(force=True, silent=False))
     except ValidationError as e:
         raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": e.errors()}) from e
 
@@ -95,9 +92,7 @@ def postCreateAdmin():
 def patchUpdateAdmin(userId: str):
     """修改 status 或 role(两者均可独立传)。"""
     try:
-        payload = AdminUpdateAdminRequest.model_validate(
-            request.get_json(force=True, silent=False)
-        )
+        payload = AdminUpdateAdminRequest.model_validate(request.get_json(force=True, silent=False))
     except ValidationError as e:
         raise ApiError("BAD_REQUEST", "请求参数错误", details={"errors": e.errors()}) from e
 

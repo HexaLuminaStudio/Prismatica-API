@@ -1,4 +1,5 @@
 """整型用户/兑换码模型迁移后的管理端查询回归测试。"""
+
 from __future__ import annotations
 
 from contextlib import contextmanager

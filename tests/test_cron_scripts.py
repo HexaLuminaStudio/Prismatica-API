@@ -4,6 +4,7 @@
     - cron_subscriptions:过期订阅 → expired;应续期订阅 → 派发
     - cron_preauth_release:超 5 分钟的 pending bill → 自动 refund
 """
+
 from __future__ import annotations
 
 import sys
@@ -102,9 +103,7 @@ def test_cron_subscriptions_renews_due(dbCtx) -> None:
     assert stats["expiring"] >= 1
 
     with factory() as s:
-        bal = s.execute(
-            select(IdentityBalance).where(IdentityBalance.userId == str(userId))
-        ).scalar_one()
+        bal = s.execute(select(IdentityBalance).where(IdentityBalance.userId == str(userId))).scalar_one()
         # 初始 200,createSubscription 派发 +200(写 ledger),续期再 +200 = 600
         assert bal.balance == 600
 

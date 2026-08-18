@@ -1,4 +1,5 @@
 """访问日志中间件:记录 method/path/status/latency/requestId。"""
+
 from __future__ import annotations
 
 import time

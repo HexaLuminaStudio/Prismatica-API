@@ -105,10 +105,7 @@ def testBuildResourceManifestsHidesOriginAndIssuesShortUrls(db: Session) -> None
         "hskCorpus",
         "hskLocalCorpus",
     }
-    assert all(
-        manifest.downloadUrl.startswith("https://api.test/v1/resources/download/")
-        for manifest in manifests
-    )
+    assert all(manifest.downloadUrl.startswith("https://api.test/v1/resources/download/") for manifest in manifests)
     assert all("origin.test" not in manifest.downloadUrl for manifest in manifests)
     assert all("ticket=" in manifest.downloadUrl for manifest in manifests)
 
@@ -229,9 +226,7 @@ def testDownloadGatewayStreamsWithoutExposingOrigin(monkeypatch) -> None:
         lambda url, **_kwargs: upstreamResponse if url == resource.sourceUrl else None,
     )
 
-    response = createApp().test_client().get(
-        "/v1/resources/download/hskCorpus?ticket=short-lived"
-    )
+    response = createApp().test_client().get("/v1/resources/download/hskCorpus?ticket=short-lived")
 
     assert response.status_code == 200
     assert response.data == b"database"

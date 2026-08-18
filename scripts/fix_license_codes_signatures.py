@@ -127,9 +127,7 @@ def _rebuildSignedPayload(
     elif kind == "recharge":
         base.update({"amount": int(amount or 0), "note": "admin issued"})
     base["signature"] = signPayload(base)
-    return base64.b64encode(
-        json.dumps(base, ensure_ascii=False).encode("utf-8")
-    ).decode("ascii")
+    return base64.b64encode(json.dumps(base, ensure_ascii=False).encode("utf-8")).decode("ascii")
 
 
 # ---------------------------------------------------------------------------
@@ -175,10 +173,7 @@ def runDryRun(*, kind: str | None) -> int:
                         }
                     )
 
-    logger.info(
-        f"[fix] scanned={total} bad={bad} ok={total - bad} "
-        f"({(bad / total * 100) if total else 0:.1f}% bad)"
-    )
+    logger.info(f"[fix] scanned={total} bad={bad} ok={total - bad} ({(bad / total * 100) if total else 0:.1f}% bad)")
     if samples:
         logger.warning("[fix] 损坏样例(最多 20 条):")
         for s in samples:
@@ -228,10 +223,7 @@ def runRepair(*, mappingPath: Path) -> int:
         for codeHash, codeBody in mapping.items():
             # 二次确认 sha256(codeBody) == codeHash(避免人肉 mapping 写错)
             if hashCode(codeBody) != codeHash:
-                logger.error(
-                    f"[fix] sha256(codeBody) != codeHash,"
-                    f"codeHash={codeHash[:12]}… 跳过"
-                )
+                logger.error(f"[fix] sha256(codeBody) != codeHash,codeHash={codeHash[:12]}… 跳过")
                 failed += 1
                 continue
 
@@ -243,9 +235,7 @@ def runRepair(*, mappingPath: Path) -> int:
                 {"ch": codeHash},
             ).first()
             if row is None:
-                logger.error(
-                    f"[fix] license_codes 表中无该 codeHash={codeHash[:12]}…"
-                )
+                logger.error(f"[fix] license_codes 表中无该 codeHash={codeHash[:12]}…")
                 missing += 1
                 continue
 
@@ -263,28 +253,18 @@ def runRepair(*, mappingPath: Path) -> int:
             )
             ok, info = _tryParseSigned(newSigned)
             if not ok:
-                logger.error(
-                    f"[fix] 重建后仍不可解析?! codeHash={codeHash[:12]}… info={info}"
-                )
+                logger.error(f"[fix] 重建后仍不可解析?! codeHash={codeHash[:12]}… info={info}")
                 failed += 1
                 continue
 
             conn.execute(
-                text(
-                    "UPDATE license_codes SET raw_code_signature = :s "
-                    "WHERE code_hash = :ch"
-                ),
+                text("UPDATE license_codes SET raw_code_signature = :s WHERE code_hash = :ch"),
                 {"s": newSigned, "ch": codeHash},
             )
             updated += 1
-            logger.info(
-                f"[fix] updated codeHash={codeHash[:12]}… kind={codeKind}"
-            )
+            logger.info(f"[fix] updated codeHash={codeHash[:12]}… kind={codeKind}")
 
-    logger.info(
-        f"[fix] repair done updated={updated} failed={failed} "
-        f"missing={missing} skipped={skipped}"
-    )
+    logger.info(f"[fix] repair done updated={updated} failed={failed} missing={missing} skipped={skipped}")
     if failed or missing:
         return 1
     return 0
@@ -296,9 +276,7 @@ def runRepair(*, mappingPath: Path) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="修复 license_codes.raw_code_signature 损坏行"
-    )
+    parser = argparse.ArgumentParser(description="修复 license_codes.raw_code_signature 损坏行")
     parser.add_argument(
         "--dry-run",
         action="store_true",

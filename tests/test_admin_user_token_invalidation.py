@@ -1,4 +1,5 @@
 """后台用户状态变更必须让既有令牌立即失效。"""
+
 from __future__ import annotations
 
 from collections.abc import Iterator

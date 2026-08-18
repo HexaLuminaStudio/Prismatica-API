@@ -1,4 +1,5 @@
 """计费 Pydantic 模型 — 对齐 PRD §5.4。"""
+
 from __future__ import annotations
 
 from pydantic import BaseModel, Field

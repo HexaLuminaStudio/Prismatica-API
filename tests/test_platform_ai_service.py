@@ -1,4 +1,5 @@
 """平台 AI 供应商用量解析测试。"""
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -87,7 +88,6 @@ def testAiRequestIdempotency_RejectsSameKeyWithDifferentBody(aiDb: int) -> None:
 
 
 class _StreamResponse:
-
     def __init__(self, lines: list[str]) -> None:
         self.lines = lines
         self.encoding = ""
@@ -110,10 +110,7 @@ def testIterProviderEvents_ParsesKeepAliveDeltaAndUsage() -> None:
             ": keep-alive",
             'data: {"choices":[{"delta":{"content":"分析"}}],"usage":null}',
             'data: {"choices":[{"delta":{"content":"完成"}}]}',
-            (
-                'data: {"choices":[],"usage":{"prompt_tokens":12,'
-                '"completion_tokens":8}}'
-            ),
+            ('data: {"choices":[],"usage":{"prompt_tokens":12,"completion_tokens":8}}'),
             "data: [DONE]",
         ]
     )
@@ -134,10 +131,7 @@ def testRunPlatformChatStream_StreamsThenSettlesWithProviderUsage(monkeypatch) -
         [
             'data: {"choices":[{"delta":{"content":"逐段"}}]}',
             'data: {"choices":[{"delta":{"content":"返回"}}]}',
-            (
-                'data: {"choices":[],"usage":{"prompt_tokens":20,'
-                '"completion_tokens":10}}'
-            ),
+            ('data: {"choices":[],"usage":{"prompt_tokens":20,"completion_tokens":10}}'),
             "data: [DONE]",
         ]
     )

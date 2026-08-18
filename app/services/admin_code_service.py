@@ -12,6 +12,7 @@
     签发能力的同时,把新建/统计口径过渡到 PKG 单一维度,避免破坏现有
     schema CheckConstraint。
 """
+
 from __future__ import annotations
 
 import base64

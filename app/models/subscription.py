@@ -14,6 +14,7 @@ status 状态机:
     canceled  — 用户主动取消,到期后转 expired
     expired   — 周期已过,失效
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -45,12 +46,8 @@ class Subscription(Base):
     planCode: Mapped[str] = mapped_column("plan_code", String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
     startedAt: Mapped[datetime] = mapped_column("started_at", DateTime, nullable=False)
-    currentPeriodStart: Mapped[datetime] = mapped_column(
-        "current_period_start", DateTime, nullable=False
-    )
-    currentPeriodEnd: Mapped[datetime] = mapped_column(
-        "current_period_end", DateTime, nullable=False
-    )
+    currentPeriodStart: Mapped[datetime] = mapped_column("current_period_start", DateTime, nullable=False)
+    currentPeriodEnd: Mapped[datetime] = mapped_column("current_period_end", DateTime, nullable=False)
     expiresAt: Mapped[datetime] = mapped_column("expires_at", DateTime, nullable=False)
     nextGrantAt: Mapped[datetime | None] = mapped_column("next_grant_at", DateTime, nullable=True)
     autoRenew: Mapped[bool] = mapped_column("auto_renew", Boolean, nullable=False, default=False)

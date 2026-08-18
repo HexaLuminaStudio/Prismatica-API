@@ -17,6 +17,7 @@ entry_type:
     refund      — 退款(增 balance)
     adjust      — 管理员手动调整
 """
+
 from __future__ import annotations
 
 from datetime import datetime

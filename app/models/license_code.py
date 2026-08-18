@@ -1,4 +1,5 @@
 """license_codes — 兑换码持久化。"""
+
 from __future__ import annotations
 
 from datetime import datetime

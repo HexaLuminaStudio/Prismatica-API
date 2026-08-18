@@ -3,6 +3,7 @@
 与 PRD §5.1 一致:
     {"error": {"code": "...", "message": "...", "requestId": "...", "details": {...}}}
 """
+
 from __future__ import annotations
 
 from typing import Any

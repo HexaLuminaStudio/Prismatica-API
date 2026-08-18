@@ -83,4 +83,3 @@ def testCreateUserSubscriptionRejectsSecondActiveSubscription(
 
     assert captured.value.code == "CONFLICT"
     assert captured.value.httpStatus == 409
-

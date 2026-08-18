@@ -1,4 +1,5 @@
 """平台 AI 路由。"""
+
 from __future__ import annotations
 
 import json

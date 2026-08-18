@@ -1,4 +1,5 @@
 """平台 AI 代理与服务端 Token 计费闭环。"""
+
 from __future__ import annotations
 
 import hashlib
@@ -183,12 +184,8 @@ def _iterProviderEvents(response) -> Iterator[dict[str, Any]]:
             )
         usage = payload.get("usage")
         if isinstance(usage, dict):
-            inputTokens = int(
-                usage.get("prompt_tokens", usage.get("input_tokens", 0)) or 0
-            )
-            outputTokens = int(
-                usage.get("completion_tokens", usage.get("output_tokens", 0)) or 0
-            )
+            inputTokens = int(usage.get("prompt_tokens", usage.get("input_tokens", 0)) or 0)
+            outputTokens = int(usage.get("completion_tokens", usage.get("output_tokens", 0)) or 0)
             if inputTokens > 0 and outputTokens > 0:
                 yield {
                     "event": "usage",

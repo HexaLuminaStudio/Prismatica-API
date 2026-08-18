@@ -12,6 +12,7 @@
     - actor 默认为 'system' 或 admin username;targetUser 为被操作用户 id(若适用)
     - IP 优先 X-Forwarded-For(代理链第一跳)
 """
+
 from __future__ import annotations
 
 import json

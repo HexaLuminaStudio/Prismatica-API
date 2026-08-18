@@ -16,6 +16,7 @@
 
 userId 类型: BIGINT(对齐 P0-A IdentityUser.id)。
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -76,9 +77,7 @@ def _userIdAsInt(userId: int) -> int:
 def _ensureIdentityBalance(db: Session, userId: int) -> IdentityBalance:
     """确保 user_balance 行存在(若不存在则创建空余额)。"""
     numericUserId = _userIdAsInt(userId)
-    balance = db.execute(
-        select(IdentityBalance).where(IdentityBalance.userId == numericUserId)
-    ).scalar_one_or_none()
+    balance = db.execute(select(IdentityBalance).where(IdentityBalance.userId == numericUserId)).scalar_one_or_none()
     if balance is None:
         balance = IdentityBalance(userId=numericUserId)
         db.add(balance)
@@ -90,9 +89,7 @@ def _lockIdentityBalance(db: Session, userId: int) -> IdentityBalance:
     """行锁 user_balance(SELECT ... FOR UPDATE)。"""
     numericUserId = _userIdAsInt(userId)
     balance = db.execute(
-        select(IdentityBalance)
-        .where(IdentityBalance.userId == numericUserId)
-        .with_for_update()
+        select(IdentityBalance).where(IdentityBalance.userId == numericUserId).with_for_update()
     ).scalar_one_or_none()
     if balance is None:
         raise ApiError("NOT_FOUND", "用户余额不存在,请先激活", httpStatus=404)
@@ -647,8 +644,7 @@ def refund(
 
     db.commit()
     logger.info(
-        f"[Billing] refund bill={billId} amount={estimated} "
-        f"balanceAfter={balanceAfter} reserved={reservedAfter}"
+        f"[Billing] refund bill={billId} amount={estimated} balanceAfter={balanceAfter} reserved={reservedAfter}"
     )
     return result
 

@@ -17,6 +17,7 @@
 
 业务逻辑全部由 admin_user_service 承载,本文件仅做参数解析 + 响应组装。
 """
+
 from __future__ import annotations
 
 from flask import Blueprint, request
@@ -208,9 +209,9 @@ def revokeSessionsRoute(userId: str):
 @requireAdminCookie
 def listSubscriptionsRoute(userId: str):
     items = listUserSubscriptions(userId=userId)
-    data = AdminUserSubscriptionsResponse(
-        items=[AdminUserSubscriptionItem(**item) for item in items]
-    ).model_dump(mode="json")
+    data = AdminUserSubscriptionsResponse(items=[AdminUserSubscriptionItem(**item) for item in items]).model_dump(
+        mode="json"
+    )
     return successEnvelope(data)
 
 
@@ -219,9 +220,7 @@ def listSubscriptionsRoute(userId: str):
 def createSubscriptionRoute(userId: str):
     """为用户开通试用、Pro 月度或 Team 月度订阅。"""
     try:
-        payload = AdminCreateSubscriptionRequest.model_validate(
-            request.get_json(force=True, silent=False)
-        )
+        payload = AdminCreateSubscriptionRequest.model_validate(request.get_json(force=True, silent=False))
     except ValidationError as error:
         raise ApiError(
             "BAD_REQUEST",

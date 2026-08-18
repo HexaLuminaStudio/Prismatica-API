@@ -4,6 +4,7 @@
 - 启用连接池回收(防止 MySQL wait_timeout 断连)
 - 提供 getDb() 上下文管理器(自动 commit/rollback/close)
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -50,6 +51,7 @@ def _setMysqlSessionUtc(dbapiConnection, _connectionRecord) -> None:
         cursor.execute("SET time_zone = '+00:00'")
     finally:
         cursor.close()
+
 
 SessionLocal = sessionmaker(
     bind=engine,

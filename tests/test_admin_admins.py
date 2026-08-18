@@ -9,6 +9,7 @@
 
 业务层 / DB 路径用 scripts/smoke_admin_e2e.py 实测(需要真实 MySQL)。
 """
+
 from __future__ import annotations
 
 import pytest
@@ -95,9 +96,7 @@ def test_openapi_includes_admin_admins_routes(app):
     # 同路径多个 method 时 spec 只展示最后注册的方法(库的限制)
     assert any(p == "/v1/admin/admins" for p in paths), paths
     assert any(p.endswith("/v1/admin/admins/<string:userId>") for p in paths), paths
-    assert any(
-        p.endswith("/v1/admin/admins/<string:userId>/reset-password") for p in paths
-    ), paths
+    assert any(p.endswith("/v1/admin/admins/<string:userId>/reset-password") for p in paths), paths
 
     # POST /v1/admin/admins 一定在
     post_paths = paths.get("/v1/admin/admins", {})
@@ -158,13 +157,10 @@ def test_admin_create_request_short_password_rejected():
     from app.schemas.admin import AdminCreateAdminRequest
 
     with pytest.raises(ValidationError):
-        AdminCreateAdminRequest(
-            username="newadmin", password="short", role="admin"
-        )
+        AdminCreateAdminRequest(username="newadmin", password="short", role="admin")
 
 
 def test_admin_update_request_empty_body_rejected():
-
     from app.schemas.admin import AdminUpdateAdminRequest
 
     r = AdminUpdateAdminRequest()

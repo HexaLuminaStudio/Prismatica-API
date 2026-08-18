@@ -9,6 +9,7 @@
     - 注销: postDeleteAccount → 状态变 deleted
     - 错误码: EMAIL_ALREADY_USED / INVALID_CREDENTIALS / INSUFFICIENT_BALANCE / BILL_NOT_FOUND
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -113,9 +114,7 @@ def test_e2e_register_login_me_change_password(client) -> None:
     )
     assert r.status_code == 200
     # 旧 refresh token 应该失效
-    r = client.post(
-        "/v1/auth/refresh", json={"refreshToken": tokens["refreshToken"]}
-    )
+    r = client.post("/v1/auth/refresh", json={"refreshToken": tokens["refreshToken"]})
     assert r.status_code == 401
 
 
@@ -162,9 +161,7 @@ def test_e2e_delete_account_revokes_refresh(client) -> None:
     assert body["revokedRefreshTokens"] >= 1
 
     # 注销后旧 refresh 失效
-    r = client.post(
-        "/v1/auth/refresh", json={"refreshToken": tokens["refreshToken"]}
-    )
+    r = client.post("/v1/auth/refresh", json={"refreshToken": tokens["refreshToken"]})
     assert r.status_code == 401
 
 
@@ -286,13 +283,14 @@ def test_e2e_idempotency_key_returns_same_bill(client, monkeypatch) -> None:
     from app.services.subscription_service import _grantQuotaInternal
 
     with accountRouter._sessionCtx() as db:
-        user = db.execute(
-            select(IdentityUser).where(IdentityUser.email == "helen@example.com")
-        ).scalar_one()
+        user = db.execute(select(IdentityUser).where(IdentityUser.email == "helen@example.com")).scalar_one()
         _grantQuotaInternal(
-            db, user.id, amount=500,
+            db,
+            user.id,
+            amount=500,
             source="recharge_code",
-            refType="code", refId="0",
+            refType="code",
+            refId="0",
             note="e2e grant",
         )
 

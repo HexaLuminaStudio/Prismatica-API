@@ -5,6 +5,7 @@
     - auditAction 装饰器在视图成功返回时自动写库
     - SENSITIVE_FIELDS(password / refreshToken 等)不出现在 details
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -109,6 +110,7 @@ def testAuditAction_DecoratorWritesOnSuccess(monkeypatch) -> None:
 
     # 同时 patch middleware.audit_log 引用的 getDb
     from app.middleware import audit_log as _audit_mw
+
     monkeypatch.setattr("app.db.getDb", _ctx)
     monkeypatch.setattr(_audit_mw, "getDb", _ctx)
     getSettings().autoInitSchema = False

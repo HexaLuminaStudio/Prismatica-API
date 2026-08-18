@@ -4,6 +4,7 @@
 - changePassword(db, userId, newPassword) → None
 - 写 audit_logs 由 admin_audit_service.recordAudit 代理
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -35,9 +36,7 @@ def loginByPassword(
     if not username or not password:
         raise ApiError("ADMIN_INVALID_CREDENTIALS", httpStatus=401)
 
-    user = db.execute(
-        select(AdminUser).where(AdminUser.username == username)
-    ).scalar_one_or_none()
+    user = db.execute(select(AdminUser).where(AdminUser.username == username)).scalar_one_or_none()
 
     if user is None:
         recordAudit("anonymous", "admin.login_failed", details={"username": username}, ip=ip)

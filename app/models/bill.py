@@ -1,4 +1,5 @@
 """Canonical bills 表映射。"""
+
 from __future__ import annotations
 
 from datetime import datetime

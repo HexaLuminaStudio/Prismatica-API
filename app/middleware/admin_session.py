@@ -38,9 +38,7 @@ def _b64urlDecode(text: str) -> bytes:
 
 
 def _sign(payloadBytes: bytes, secret: str) -> str:
-    return hmac.new(
-        secret.encode("utf-8"), payloadBytes, hashlib.sha256
-    ).hexdigest()
+    return hmac.new(secret.encode("utf-8"), payloadBytes, hashlib.sha256).hexdigest()
 
 
 def makeSessionValue(userId: str, username: str) -> str:
