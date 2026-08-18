@@ -6,9 +6,8 @@ import string
 from datetime import UTC, datetime, time
 from typing import Any
 
-from sqlalchemy import delete
+from sqlalchemy import delete, or_, select
 from sqlalchemy import func as saFunc
-from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 
 from app.datetime_utils import parseUtcIso, toUtcIso
