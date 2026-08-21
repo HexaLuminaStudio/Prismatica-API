@@ -15,8 +15,8 @@ RUN apt-get update \
 
 WORKDIR /app
 
-# 先装依赖(利用 Docker 缓存)。用 pip 直接装,而不是依赖 pyproject.toml,
-# 这样不用每次改 pyproject.toml 都重装一遍。
+# 先装依赖(利用 Docker 缓存)。手工清单必须覆盖 pyproject.toml 的全部运行时依赖,
+# tests/test_deploy_dependencies.py 会阻止两处依赖再次漂移。
 COPY pyproject.toml ./
 RUN pip install --upgrade pip \
     && pip install \
@@ -34,7 +34,8 @@ RUN pip install --upgrade pip \
         "redis>=5.0.4" \
         "prometheus-client>=0.20.0" \
         "gunicorn>=22.0.0" \
-        "requests>=2.34.2"
+        "requests>=2.34.2" \
+        "flasgger>=0.9.7.1"
 
 # 复制源码
 COPY app ./app
