@@ -19,6 +19,7 @@ dependencies = [
     "gunicorn>=22.0.0",
     "requests>=2.34.2",
     "flask-cors",
+    "flasgger>=0.9.7.1",
 ]
 
 [dependency-groups]

@@ -48,7 +48,7 @@ def test_openapi_includes_v1_routes(app):
     assert "/v1/billing/estimate" in spec["paths"]
     assert "/v1/account/me" in spec["paths"]
     assert "/v1/resources/bootstrap" in spec["paths"]
-    assert "/v1/resources/download/<string:resourceKey>" in spec["paths"]
+    assert "/v1/resources/download/{resourceKey}" in spec["paths"]
 
 
 def test_404_envelope(app):

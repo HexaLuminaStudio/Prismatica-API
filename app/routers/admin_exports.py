@@ -57,7 +57,23 @@ def _csvResponse(rows: list[dict[str, Any]], filename: str) -> Response:
 @bp.get("/users.csv")
 @requireAdminCookie
 def exportUsersRoute():
-    """用户列表导出。"""
+    """用户列表导出(CSV)。
+
+    ---
+    tags: [admin]
+    security:
+      - adminCookie: []
+    parameters:
+      - name: limit
+        in: query
+        required: false
+        schema: {type: integer, default: 5000, maximum: 10000}
+    responses:
+      200:
+        description: users.csv(UTF-8 BOM)
+      401:
+        description: 未登录(ADMIN_LOGIN_REQUIRED)
+    """
     rows = exportUsers(limit=_limit())
     return _csvResponse(rows, "users.csv")
 
@@ -65,7 +81,39 @@ def exportUsersRoute():
 @bp.get("/audit.csv")
 @requireAdminCookie
 def exportAuditRoute():
-    """审计日志导出(过滤同列表页)。"""
+    """审计日志导出(CSV,过滤同列表页)。
+
+    ---
+    tags: [admin]
+    security:
+      - adminCookie: []
+    parameters:
+      - name: limit
+        in: query
+        required: false
+        schema: {type: integer, default: 5000, maximum: 10000}
+      - name: days
+        in: query
+        required: false
+        schema: {type: integer}
+      - name: action
+        in: query
+        required: false
+        schema: {type: string}
+      - name: actor
+        in: query
+        required: false
+        schema: {type: string}
+      - name: targetUser
+        in: query
+        required: false
+        schema: {type: string}
+    responses:
+      200:
+        description: audit.csv(UTF-8 BOM)
+      401:
+        description: 未登录(ADMIN_LOGIN_REQUIRED)
+    """
     daysRaw = request.args.get("days")
     try:
         days = int(daysRaw) if daysRaw else None
@@ -84,7 +132,31 @@ def exportAuditRoute():
 @bp.get("/codes.csv")
 @requireAdminCookie
 def exportCodesRoute():
-    """凭证列表导出(不含明文 code)。"""
+    """凭证列表导出(CSV,不含明文 code)。
+
+    ---
+    tags: [admin]
+    security:
+      - adminCookie: []
+    parameters:
+      - name: limit
+        in: query
+        required: false
+        schema: {type: integer, default: 5000, maximum: 10000}
+      - name: kind
+        in: query
+        required: false
+        schema: {type: string}
+      - name: status
+        in: query
+        required: false
+        schema: {type: string}
+    responses:
+      200:
+        description: codes.csv(UTF-8 BOM)
+      401:
+        description: 未登录(ADMIN_LOGIN_REQUIRED)
+    """
     rows = exportCodes(
         limit=_limit(),
         kind=(request.args.get("kind") or "").strip() or None,
@@ -96,7 +168,35 @@ def exportCodesRoute():
 @bp.get("/bills.csv")
 @requireAdminCookie
 def exportBillsRoute():
-    """账单流水导出。"""
+    """账单流水导出(CSV)。
+
+    ---
+    tags: [admin]
+    security:
+      - adminCookie: []
+    parameters:
+      - name: limit
+        in: query
+        required: false
+        schema: {type: integer, default: 5000, maximum: 10000}
+      - name: status
+        in: query
+        required: false
+        schema: {type: string}
+      - name: userId
+        in: query
+        required: false
+        schema: {type: string}
+      - name: days
+        in: query
+        required: false
+        schema: {type: integer}
+    responses:
+      200:
+        description: bills.csv(UTF-8 BOM)
+      401:
+        description: 未登录(ADMIN_LOGIN_REQUIRED)
+    """
     daysRaw = request.args.get("days")
     try:
         days = int(daysRaw) if daysRaw else None

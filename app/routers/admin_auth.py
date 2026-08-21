@@ -35,9 +35,42 @@ bp = Blueprint("admin_auth", __name__, url_prefix="/v1/admin")
 def postLogin():
     """用户名密码登录 → 颁 HttpOnly cookie(失败不颁)。
 
-    错误:
-        - 401 ADMIN_INVALID_CREDENTIALS
-        - 423 ADMIN_ACCOUNT_LOCKED
+    登录成功设置 HttpOnly cookie(session),后续请求自动携带。
+
+    ---
+    tags: [admin]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [username, password]
+            properties:
+              username: {type: string}
+              password: {type: string}
+    responses:
+      200:
+        description: 登录成功
+        schema:
+          type: object
+          properties:
+            code: {type: string, example: OK}
+            data:
+              type: object
+              properties:
+                userId: {type: integer}
+                username: {type: string}
+                role: {type: string}
+                status: {type: string}
+                lastLoginAt: {type: string, format: date-time, nullable: true}
+            requestId: {type: string}
+      400:
+        description: 请求参数错误(BAD_REQUEST)
+      401:
+        description: 用户名或密码错误(ADMIN_INVALID_CREDENTIALS)
+      423:
+        description: 账号被锁定(ADMIN_ACCOUNT_LOCKED)
     """
     try:
         payload = AdminLoginRequest.model_validate(request.get_json(force=True, silent=False))
@@ -66,7 +99,20 @@ def postLogin():
 
 @bp.post("/auth/logout")
 def postLogout():
-    """清除 cookie(无需鉴权:无 cookie 也是 200)。"""
+    """清除 cookie(无需鉴权:无 cookie 也是 200)。
+
+    ---
+    tags: [admin]
+    responses:
+      200:
+        description: 已登出
+        schema:
+          type: object
+          properties:
+            code: {type: string, example: OK}
+            data: {type: object, nullable: true}
+            requestId: {type: string}
+    """
     respBody, status = successEnvelope(None)
     resp = make_response(respBody, status)
     clearSessionCookie(resp)
@@ -76,7 +122,31 @@ def postLogout():
 @bp.get("/auth/me")
 @requireAdminCookie
 def getMe():
-    """返回当前登录管理员信息。"""
+    """返回当前登录管理员信息。
+
+    ---
+    tags: [admin]
+    security:
+      - adminCookie: []
+    responses:
+      200:
+        description: 当前管理员信息
+        schema:
+          type: object
+          properties:
+            code: {type: string, example: OK}
+            data:
+              type: object
+              properties:
+                userId: {type: string}
+                username: {type: string}
+                role: {type: string}
+                status: {type: string}
+                lastLoginAt: {type: string, format: date-time, nullable: true}
+            requestId: {type: string}
+      401:
+        description: 未登录(ADMIN_LOGIN_REQUIRED)
+    """
     userId = getattr(g, "adminUserId", "")
     if not userId or userId == "cli-admin":
         # CLI mode:仅返回占位信息,不查 DB
@@ -105,7 +175,39 @@ def getMe():
 @bp.post("/auth/change-password")
 @requireAdminCookie
 def postChangePassword():
-    """修改自身密码(强制要求 ≥ 8 位)。"""
+    """修改自身密码(强制要求 ≥ 8 位)。
+
+    ---
+    tags: [admin]
+    security:
+      - adminCookie: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [oldPassword, newPassword]
+            properties:
+              oldPassword: {type: string, description: 当前密码}
+              newPassword: {type: string, minLength: 8, description: 新密码(≥ 8 位)}
+    responses:
+      200:
+        description: 修改成功
+        schema:
+          type: object
+          properties:
+            code: {type: string, example: OK}
+            data:
+              type: object
+              properties:
+                success: {type: boolean, example: true}
+            requestId: {type: string}
+      400:
+        description: 请求参数错误(BAD_REQUEST)
+      401:
+        description: 未登录或旧密码错误(ADMIN_LOGIN_REQUIRED / ADMIN_INVALID_CREDENTIALS)
+    """
     try:
         payload = AdminChangePasswordRequest.model_validate(request.get_json(force=True, silent=False))
     except ValidationError as e:
@@ -127,7 +229,16 @@ def postChangePassword():
 
 @bp.get("/health")
 def adminHealth():
-    """管理后台健康检查(无需鉴权)。"""
+    """管理后台健康检查(无需鉴权)。
+
+    ---
+    tags: [admin]
+    responses:
+      200:
+        description: 健康检查通过
+      503:
+        description: 依赖不可用(如数据库连接失败)
+    """
     payload, code = buildHealthPayload()
     return successEnvelope(payload, httpStatus=code)
 

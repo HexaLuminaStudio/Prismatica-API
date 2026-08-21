@@ -25,7 +25,46 @@ bp = Blueprint("admin_audit", __name__, url_prefix="/v1/admin/audit")
 @bp.get("")
 @requireAdminCookie
 def listAuditRoute():
-    """审计日志查询(分页 + 时间范围 + 过滤)。"""
+    """审计日志查询(分页 + 时间范围 + 过滤)。
+
+    ---
+    tags: [admin]
+    security:
+      - adminCookie: []
+    parameters:
+      - name: limit
+        in: query
+        required: false
+        schema: {type: integer, default: 50}
+      - name: cursor
+        in: query
+        required: false
+        schema: {type: string}
+      - name: action
+        in: query
+        required: false
+        schema: {type: string}
+      - name: actor
+        in: query
+        required: false
+        schema: {type: string}
+      - name: targetUser
+        in: query
+        required: false
+        schema: {type: string}
+      - name: days
+        in: query
+        required: false
+        schema: {type: integer}
+        description: 最近 N 天
+    responses:
+      200:
+        description: 审计日志列表
+      400:
+        description: limit 格式错误(BAD_REQUEST)
+      401:
+        description: 未登录(ADMIN_LOGIN_REQUIRED)
+    """
     try:
         limit = int(request.args.get("limit", 50))
     except ValueError as e:
@@ -56,7 +95,25 @@ def listAuditRoute():
 @bp.get("/summary")
 @requireAdminCookie
 def auditSummaryRoute():
-    """看板用 group by action + count。"""
+    """看板用 group by action + count。
+
+    ---
+    tags: [admin]
+    security:
+      - adminCookie: []
+    parameters:
+      - name: days
+        in: query
+        required: false
+        schema: {type: integer, default: 7}
+    responses:
+      200:
+        description: 审计汇总
+      400:
+        description: days 格式错误(BAD_REQUEST)
+      401:
+        description: 未登录(ADMIN_LOGIN_REQUIRED)
+    """
     try:
         days = int(request.args.get("days", 7))
     except ValueError as e:

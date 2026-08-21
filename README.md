@@ -135,7 +135,8 @@ deploy/
 |------|------|------|------|
 | 公共 | `GET /healthz` | 无 | 健康检查(DB 探测) |
 | 公共 | `GET /metrics` | 无 | Prometheus 指标 |
-| 公共 | `GET /openapi.json` | 无 | OpenAPI 3.0 简版 |
+| 公共 | `GET /apidocs/` | 无 | Swagger UI 交互式接口文档(Flasgger,可在线调试) |
+| 公共 | `GET /openapi.json` | 无 | OpenAPI 3.0 规范(Flasgger 生成,与 /apidocs/ 同源) |
 | Auth | `POST /v1/auth/register` | 无 | 邮箱密码注册（5/h/IP） |
 | Auth | `POST /v1/auth/login` | 无 | 邮箱密码 + 设备登录；失败锁定与双维度限速 |
 | Auth | `POST /v1/auth/redeem` | 无 | 兑换 INV/TRY/RCH 码 |

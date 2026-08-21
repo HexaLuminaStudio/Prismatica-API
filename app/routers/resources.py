@@ -39,7 +39,42 @@ def _publicBaseUrl() -> str:
 @limiter.limit("30 per hour")
 @requireUser
 def bootstrapResources():
-    """校验登录账号和设备后签发当前资源清单。"""
+    """校验登录账号和设备后签发当前资源清单。
+
+    返回的 downloadUrl 已带短期签名票据(ticket),客户端可直接下载。
+
+    ---
+    tags: [resources]
+    security:
+      - bearerAuth: []
+    responses:
+      200:
+        description: 资源清单
+        schema:
+          type: object
+          properties:
+            code: {type: string, example: OK}
+            data:
+              type: object
+              properties:
+                resources:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      resourceKey: {type: string}
+                      displayName: {type: string}
+                      fileName: {type: string}
+                      version: {type: string}
+                      sha256: {type: string}
+                      downloadUrl: {type: string}
+                      expiresAt: {type: string, format: date-time}
+            requestId: {type: string}
+      401:
+        description: 未登录或 token 失效(UNAUTHORIZED)
+      429:
+        description: 触发限流(TOO_MANY_REQUESTS)
+    """
     with getDb() as db:
         manifests = buildResourceManifests(
             db,
@@ -54,7 +89,47 @@ def bootstrapResources():
 @bp.post("/official-token")
 @limiter.limit("10 per hour")
 def issueOfficialCorpusToken():
-    """由后端官方账号代登录语料平台，客户端永远接触不到账号密码。"""
+    """由后端官方账号代登录语料平台,客户端永远接触不到账号密码。
+
+    ---
+    tags: [resources]
+    parameters:
+      - name: X-Device-Id
+        in: header
+        required: true
+        schema:
+          type: string
+        description: 客户端设备 UUID(8-128 字符)
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [provider]
+            properties:
+              provider:
+                type: string
+                enum: [hsk, global]
+                description: 语料平台标识
+    responses:
+      200:
+        description: 代登录成功
+        schema:
+          type: object
+          properties:
+            code: {type: string, example: OK}
+            data:
+              type: object
+              properties:
+                provider: {type: string}
+                token: {type: string, description: 平台访问 token}
+            requestId: {type: string}
+      400:
+        description: X-Device-Id 缺失或 provider 无效(BAD_REQUEST)
+      429:
+        description: 触发限流(TOO_MANY_REQUESTS)
+    """
     deviceId = request.headers.get("X-Device-Id", "").strip()
     if not 8 <= len(deviceId) <= 128:
         raise ApiError("BAD_REQUEST", "缺少有效的 X-Device-Id")
@@ -75,7 +150,35 @@ def issueOfficialCorpusToken():
 @bp.get("/download/<string:resourceKey>")
 @limiter.limit("20 per hour")
 def downloadResource(resourceKey: str):
-    """验证短期票据并从后端源站流式转发数据库文件。"""
+    """验证短期票据并从后端源站流式转发数据库文件。
+
+    请求需携带 bootstrap 返回的 downloadUrl 中的 ticket 查询参数。
+
+    ---
+    tags: [resources]
+    parameters:
+      - name: resourceKey
+        in: path
+        required: true
+        schema:
+          type: string
+        description: 资源标识(如 hsk4_db / global_corpus)
+      - name: ticket
+        in: query
+        required: true
+        schema:
+          type: string
+        description: bootstrap 签发的短期下载票据
+    responses:
+      200:
+        description: 数据库文件流(application/octet-stream)
+      401:
+        description: 票据无效或已过期(RESOURCE_TICKET_INVALID)
+      404:
+        description: 资源未配置(RESOURCE_NOT_FOUND)
+      502:
+        description: 源站不可用(RESOURCE_UPSTREAM_UNAVAILABLE)
+    """
     resource = getConfiguredResource(resourceKey)
     ticket = request.args.get("ticket", "").strip()
     if not ticket:

@@ -21,6 +21,7 @@ from app.errors import registerErrorHandlers
 from app.middleware.access_log import installAccessLog
 from app.middleware.audit_log import installAuditContext
 from app.middleware.request_id import installRequestId
+from app.swagger_docs import registerSwaggerDocs
 
 # 限流(默认内存,生产建议 Redis)
 limiter = Limiter(
@@ -146,6 +147,10 @@ def createApp() -> Flask:
 
     # 错误处理
     registerErrorHandlers(app)
+
+    # Flasgger 文档(/apidocs/ + /apispec_1.json;需在所有蓝图注册后初始化,
+    # 以便扫描到全部路由)
+    registerSwaggerDocs(app)
 
     # 启动期:探测 DB;autoInitSchema 时执行 schema.sql
     if not pingDb():

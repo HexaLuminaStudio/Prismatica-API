@@ -39,7 +39,35 @@ def _actor() -> str:
 @bp.post("")
 @requireAdminCookie
 def postIssueCodes():
-    """批量签发凭证,立即持久化到 license_codes 表。"""
+    """批量签发凭证,立即持久化到 license_codes 表。
+
+    ---
+    tags: [admin]
+    security:
+      - adminCookie: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [kind, count]
+            properties:
+              kind: {type: string, enum: [invite, trial, recharge]}
+              count: {type: integer, minimum: 1, maximum: 1000}
+              grantedBalance: {type: integer, description: recharge 码赠送积分}
+              grantedDays: {type: integer, description: trial 码赠送天数}
+              tier: {type: string}
+              expireDays: {type: integer, description: 过期天数}
+              note: {type: string}
+    responses:
+      200:
+        description: 签发成功(返回明文 code 列表)
+      400:
+        description: 参数错误(BAD_REQUEST)
+      401:
+        description: 未登录(ADMIN_LOGIN_REQUIRED)
+    """
     try:
         payload = AdminIssueCodesRequest.model_validate(request.get_json(force=True, silent=False))
     except ValidationError as e:
@@ -62,7 +90,35 @@ def postIssueCodes():
 @bp.get("")
 @requireAdminCookie
 def listCodesRoute():
-    """凭证列表(不含明文 code;支持 kind / status 过滤)。"""
+    """凭证列表(不含明文 code;支持 kind / status 过滤)。
+
+    ---
+    tags: [admin]
+    security:
+      - adminCookie: []
+    parameters:
+      - name: kind
+        in: query
+        required: false
+        schema: {type: string}
+      - name: status
+        in: query
+        required: false
+        schema: {type: string}
+      - name: limit
+        in: query
+        required: false
+        schema: {type: integer, default: 50}
+      - name: cursor
+        in: query
+        required: false
+        schema: {type: string}
+    responses:
+      200:
+        description: 凭证列表
+      401:
+        description: 未登录(ADMIN_LOGIN_REQUIRED)
+    """
     kind = (request.args.get("kind") or "").strip() or None
     status = (request.args.get("status") or "").strip() or None
     limit = int(request.args.get("limit", 50))
@@ -78,7 +134,25 @@ def listCodesRoute():
 @bp.get("/lookup")
 @requireAdminCookie
 def codeLookupRoute():
-    """按明文 code 查状态(hash 后查 license_codes)。"""
+    """按明文 code 查状态(hash 后查 license_codes)。
+
+    ---
+    tags: [admin]
+    security:
+      - adminCookie: []
+    parameters:
+      - name: code
+        in: query
+        required: true
+        schema: {type: string}
+    responses:
+      200:
+        description: 凭证状态
+      400:
+        description: 缺少 code 参数(BAD_REQUEST)
+      401:
+        description: 未登录(ADMIN_LOGIN_REQUIRED)
+    """
     raw = (request.args.get("code") or "").strip()
     if not raw:
         raise ApiError("BAD_REQUEST", "缺少 code 参数")
@@ -90,7 +164,25 @@ def codeLookupRoute():
 @bp.post("/<string:codeHash>/revoke")
 @requireAdminCookie
 def revokeCodeRoute(codeHash: str):
-    """撤销某凭证(active → revoked)。"""
+    """撤销某凭证(active → revoked)。
+
+    ---
+    tags: [admin]
+    security:
+      - adminCookie: []
+    parameters:
+      - name: codeHash
+        in: path
+        required: true
+        schema: {type: string}
+    responses:
+      200:
+        description: 撤销成功
+      401:
+        description: 未登录(ADMIN_LOGIN_REQUIRED)
+      404:
+        description: 凭证不存在(NOT_FOUND)
+    """
     result = revokeCode(codeHash)
     data = AdminCodeRevokeResponse(**result).model_dump()
     return successEnvelope(data)

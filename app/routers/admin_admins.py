@@ -51,7 +51,41 @@ def _actorUserId() -> str | None:
 @requireAdminCookie
 @requireOwner
 def listAdminsRoute():
-    """账号列表(分页 + 过滤)。"""
+    """账号列表(分页 + 过滤,仅 owner)。
+
+    ---
+    tags: [admin]
+    security:
+      - adminCookie: []
+    parameters:
+      - name: limit
+        in: query
+        required: false
+        schema: {type: integer, default: 50}
+      - name: cursor
+        in: query
+        required: false
+        schema: {type: string}
+      - name: q
+        in: query
+        required: false
+        schema: {type: string}
+      - name: status
+        in: query
+        required: false
+        schema: {type: string}
+      - name: role
+        in: query
+        required: false
+        schema: {type: string}
+    responses:
+      200:
+        description: 账号列表
+      401:
+        description: 未登录(ADMIN_LOGIN_REQUIRED)
+      403:
+        description: 非 owner 无权限(FORBIDDEN)
+    """
     limit = int(request.args.get("limit", 50))
     cursor = request.args.get("cursor")
     q = (request.args.get("q") or "").strip() or None
@@ -70,7 +104,33 @@ def listAdminsRoute():
 @requireAdminCookie
 @requireOwner
 def postCreateAdmin():
-    """创建账号。"""
+    """创建账号(仅 owner)。
+
+    ---
+    tags: [admin]
+    security:
+      - adminCookie: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [username, password]
+            properties:
+              username: {type: string}
+              password: {type: string, minLength: 8}
+              role: {type: string, enum: [admin, operator], default: operator}
+    responses:
+      200:
+        description: 创建成功
+      400:
+        description: 参数错误(BAD_REQUEST)
+      401:
+        description: 未登录(ADMIN_LOGIN_REQUIRED)
+      403:
+        description: 非 owner 无权限(FORBIDDEN)
+    """
     try:
         payload = AdminCreateAdminRequest.model_validate(request.get_json(force=True, silent=False))
     except ValidationError as e:
@@ -90,7 +150,38 @@ def postCreateAdmin():
 @requireAdminCookie
 @requireOwner
 def patchUpdateAdmin(userId: str):
-    """修改 status 或 role(两者均可独立传)。"""
+    """修改 status 或 role(两者均可独立传,仅 owner)。
+
+    ---
+    tags: [admin]
+    security:
+      - adminCookie: []
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema: {type: string}
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              status: {type: string, enum: [active, disabled]}
+              role: {type: string, enum: [admin, operator]}
+    responses:
+      200:
+        description: 修改成功
+      400:
+        description: status 与 role 至少传一个(BAD_REQUEST)
+      401:
+        description: 未登录(ADMIN_LOGIN_REQUIRED)
+      403:
+        description: 非 owner 无权限(FORBIDDEN)
+      404:
+        description: 账号不存在(NOT_FOUND)
+    """
     try:
         payload = AdminUpdateAdminRequest.model_validate(request.get_json(force=True, silent=False))
     except ValidationError as e:
@@ -140,7 +231,32 @@ def patchUpdateAdmin(userId: str):
 @requireAdminCookie
 @requireOwner
 def deleteSoftAdmin(userId: str):
-    """软删除(接受 query confirm=<username> 二次确认)。"""
+    """软删除(接受 query confirm=<username> 二次确认,仅 owner)。
+
+    ---
+    tags: [admin]
+    security:
+      - adminCookie: []
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema: {type: string}
+      - name: confirm
+        in: query
+        required: true
+        schema: {type: string}
+        description: 被删账号的 username
+    responses:
+      200:
+        description: 已软删除
+      401:
+        description: 未登录(ADMIN_LOGIN_REQUIRED)
+      403:
+        description: 非 owner 无权限(FORBIDDEN)
+      404:
+        description: 账号不存在(NOT_FOUND)
+    """
     confirm = (request.args.get("confirm") or "").strip()
     result = softDeleteAdmin(
         userId=userId,
@@ -156,7 +272,27 @@ def deleteSoftAdmin(userId: str):
 @requireAdminCookie
 @requireOwner
 def postResetPassword(userId: str):
-    """重置密码(返回一次性明文)。"""
+    """重置密码(返回一次性明文,仅 owner)。
+
+    ---
+    tags: [admin]
+    security:
+      - adminCookie: []
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema: {type: string}
+    responses:
+      200:
+        description: 重置成功(含一次性明文密码)
+      401:
+        description: 未登录(ADMIN_LOGIN_REQUIRED)
+      403:
+        description: 非 owner 无权限(FORBIDDEN)
+      404:
+        description: 账号不存在(NOT_FOUND)
+    """
     result = resetAdminPassword(
         userId=userId,
         actor=_actor(),

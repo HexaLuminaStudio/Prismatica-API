@@ -92,11 +92,11 @@ def test_openapi_includes_admin_admins_routes(app):
     spec = resp.get_json()
     paths = spec["paths"]
 
-    # flask-openapi 把 <string:userId> 原样输出;
+    # flasgger 把 <string:userId> 规范化为 {userId}(OpenAPI 3 路径参数);
     # 同路径多个 method 时 spec 只展示最后注册的方法(库的限制)
     assert any(p == "/v1/admin/admins" for p in paths), paths
-    assert any(p.endswith("/v1/admin/admins/<string:userId>") for p in paths), paths
-    assert any(p.endswith("/v1/admin/admins/<string:userId>/reset-password") for p in paths), paths
+    assert any(p.endswith("/v1/admin/admins/{userId}") for p in paths), paths
+    assert any(p.endswith("/v1/admin/admins/{userId}/reset-password") for p in paths), paths
 
     # POST /v1/admin/admins 一定在
     post_paths = paths.get("/v1/admin/admins", {})

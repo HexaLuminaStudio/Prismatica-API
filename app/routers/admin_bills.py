@@ -22,7 +22,42 @@ bp = Blueprint("admin_bills", __name__, url_prefix="/v1/admin/bills")
 @bp.get("")
 @requireAdminCookie
 def listBillsRoute():
-    """账单列表(分页 + 过滤)。"""
+    """账单列表(分页 + 过滤)。
+
+    ---
+    tags: [admin]
+    security:
+      - adminCookie: []
+    parameters:
+      - name: limit
+        in: query
+        required: false
+        schema: {type: integer, default: 50}
+      - name: cursor
+        in: query
+        required: false
+        schema: {type: string}
+      - name: status
+        in: query
+        required: false
+        schema: {type: string}
+      - name: userId
+        in: query
+        required: false
+        schema: {type: string}
+      - name: days
+        in: query
+        required: false
+        schema: {type: integer}
+        description: 最近 N 天
+    responses:
+      200:
+        description: 账单列表
+      400:
+        description: limit/days 格式错误(BAD_REQUEST)
+      401:
+        description: 未登录(ADMIN_LOGIN_REQUIRED)
+    """
     try:
         limit = int(request.args.get("limit", 50))
         daysRaw = request.args.get("days")
@@ -51,7 +86,25 @@ def listBillsRoute():
 @bp.get("/<string:billId>")
 @requireAdminCookie
 def billDetailRoute(billId: str):
-    """账单详情(含用户 displayName)。"""
+    """账单详情(含用户 displayName)。
+
+    ---
+    tags: [admin]
+    security:
+      - adminCookie: []
+    parameters:
+      - name: billId
+        in: path
+        required: true
+        schema: {type: string}
+    responses:
+      200:
+        description: 账单详情
+      401:
+        description: 未登录(ADMIN_LOGIN_REQUIRED)
+      404:
+        description: 账单不存在(NOT_FOUND)
+    """
     result = getBillDetail(billId)
     data = AdminBillListItem(**result).model_dump(mode="json")
     return successEnvelope(data)
